@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MySQL 事务与并发 · 锁 · 隔离级别 · MySQL Server 8.4 源码专题</title>
+<link rel="preconnect" href="https://miaoda.feishu.cn">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --bg:#0F141B; --bg2:#0B0F15; --panel:#151C26; --panel2:#1A2330; --panel3:#202B3B;
+  --line:rgba(148,163,184,.16); --line2:rgba(148,163,184,.28);
+  --text:#E6EDF3; --muted:#93A3B8; --faint:#6B7A90;
+  --accent:#4DD0A8; --accent2:#7C9CF5; --accent-dim:rgba(77,208,168,.12);
+  --ok:#5BD087; --no:#F26D6D; --warn:#F5B84C; --idle:#8B9BB4;
+  --mono:'JetBrains Mono','Consolas','Courier New',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth;overflow-x:clip}
+body{background:var(--bg);color:var(--text);font-family:'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased;overflow-x:clip}
+::selection{background:rgba(77,208,168,.25)}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+/* ===== 顶部导航 ===== */
+nav.top{position:sticky;top:0;z-index:50;background:rgba(15,20,27,.82);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+nav.top .bar{max-width:1120px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:8px;overflow-x:auto;scrollbar-width:none}
+nav.top .bar::-webkit-scrollbar{display:none}
+nav.top .brand{font-weight:700;font-size:14px;white-space:nowrap;color:var(--accent);letter-spacing:.5px;margin-right:8px}
+nav.top .brand em{font-style:normal;color:var(--text)}
+nav.top a.chip{display:inline-block;padding:5px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted);font-size:12.5px;text-decoration:none;white-space:nowrap;transition:all .18s}
+nav.top a.chip:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-dim)}
+nav.top a.chip.min{opacity:.55}
+nav.top a.chip.min:hover{opacity:1}
+
+/* ===== Hero ===== */
+header.hero{position:relative;overflow:hidden;padding:64px 0 56px;border-bottom:1px solid var(--line)}
+header.hero::before{content:"";position:absolute;inset:0;background:
+  radial-gradient(620px 320px at 12% 0%,rgba(77,208,168,.12),transparent 60%),
+  radial-gradient(520px 280px at 88% 25%,rgba(124,156,245,.10),transparent 60%);pointer-events:none}
+.hero .kicker{display:inline-flex;align-items:center;gap:8px;font-size:12px;letter-spacing:2.5px;color:var(--accent);font-weight:600;margin-bottom:18px}
+.hero .kicker::before{content:"";width:26px;height:1px;background:var(--accent)}
+.hero h1{font-size:44px;font-weight:900;line-height:1.2;letter-spacing:.5px}
+.hero h1 .grad{background:linear-gradient(90deg,#4DD0A8,#7C9CF5);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero .sub{margin:18px 0 32px;color:var(--muted);font-size:16px;max-width:800px}
+.hero .sub b{color:var(--text);font-weight:600}
+.pillars{display:flex;gap:16px;flex-wrap:wrap}
+.pillar{flex:1 1 220px;min-width:0;padding:16px 18px;background:linear-gradient(160deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:14px}
+.pillar .n{font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:1px}
+.pillar .t{font-weight:700;margin:6px 0 4px;font-size:15px}
+.pillar .d{color:var(--muted);font-size:13px}
+
+/* ===== 章节通用 ===== */
+section.block{padding:56px 0;border-bottom:1px solid var(--line);scroll-margin-top:64px}
+.sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:12px}
+.sec-head .no{font-family:var(--mono);font-size:14px;color:var(--accent);font-weight:600;white-space:nowrap}
+.sec-head h2{font-size:26px;font-weight:900;letter-spacing:.3px}
+.sec-head .en{color:var(--faint);font-size:12px;letter-spacing:2px;text-transform:uppercase}
+.sec-lead{color:var(--muted);font-size:14.5px;max-width:880px;margin-bottom:26px}
+.sec-lead b{color:var(--text)}
+
+h3.subt{font-size:17px;font-weight:700;margin:30px 0 12px;padding-left:12px;border-left:3px solid var(--accent)}
+p.para{color:var(--muted);font-size:14.5px;margin-bottom:10px}
+p.para b{color:var(--text)}
+code.k{font-family:var(--mono);font-size:12.5px;background:var(--panel3);border:1px solid var(--line);border-radius:4px;padding:1px 6px;color:var(--accent2)}
+
+/* 源码路径 */
+.srcpath{font-family:var(--mono);font-size:12px;color:var(--muted);background:rgba(77,208,168,.08);border:1px solid rgba(77,208,168,.18);border-radius:6px;padding:1px 6px;margin:0 2px}
+
+/* 表格 */
+.tbl-wrap{overflow-x:auto;margin:16px 0}
+table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;margin:0}
+table.tbl th{background:var(--panel2);color:var(--accent);text-align:left;font-weight:600;padding:10px 12px;border:1px solid var(--line);font-size:12.5px;letter-spacing:.5px}
+table.tbl td{padding:9px 12px;border:1px solid var(--line);color:var(--muted);vertical-align:top;overflow-wrap:anywhere}
+table.tbl td b{color:var(--text);font-weight:600}
+table.tbl tr:hover td{background:rgba(77,208,168,.04)}
+table.tbl td .mono,table.tbl th .mono{font-family:var(--mono);font-size:12px}
+table.tbl .ok{color:var(--ok)}table.tbl .no{color:var(--no)}table.tbl .warn{color:var(--warn)}
+
+/* 兼容矩阵单元格 */
+table.matrix td{text-align:center}
+table.matrix td.lab{text-align:left;font-family:var(--mono);font-size:12.5px;color:var(--text)}
+table.matrix td.y{color:var(--ok);font-weight:700}
+table.matrix td.n{color:var(--no);font-weight:700}
+
+/* 代码块 */
+pre.code{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.7;margin:14px 0;color:#C9D6E3}
+pre.code .c{color:#5A6B80}pre.code .kw{color:#7C9CF5}pre.code .fn{color:#4DD0A8}pre.code .st{color:#B8E986}pre.code .num{color:#F5B84C}
+
+/* 提示条 */
+.note{display:flex;gap:10px;padding:12px 16px;border-radius:10px;background:var(--accent-dim);border:1px solid rgba(77,208,168,.28);font-size:13.5px;color:var(--muted);margin:16px 0}
+.note b{color:var(--accent)}
+.note.warn{background:rgba(245,184,76,.08);border-color:rgba(245,184,76,.3)}
+.note.warn b{color:var(--warn)}
+.note.red{background:rgba(242,109,109,.07);border-color:rgba(242,109,109,.28)}
+.note.red b{color:var(--no)}
+
+/* 卡片 */
+.comp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin:20px 0}
+.comp{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+.comp .tag{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:1.5px;color:var(--bg);background:var(--accent);border-radius:4px;padding:1px 8px;font-weight:600}
+.comp h4{font-size:15px;font-weight:700;margin:10px 0 8px}
+.comp p{color:var(--muted);font-size:13px}
+.comp .kv{font-family:var(--mono);font-size:12px;background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-top:10px;line-height:1.9;color:#C9D6E3}
+.comp .kv .hl{color:var(--accent)}.comp .kv .hl2{color:var(--warn)}
+
+/* 图容器 */
+.fig{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin:18px 0;overflow-x:auto}
+.fig svg{display:block;width:100%;min-width:640px;height:auto}
+.fig .cap{font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-top:10px}
+.fig .cap b{color:var(--muted)}
+.legend{display:flex;gap:18px;flex-wrap:wrap;margin:10px 0 4px;font-size:12.5px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+
+/* 状态机 */
+.sm{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;margin:18px 0;overflow-x:auto}
+.sm svg{display:block;width:100%;min-width:660px;height:auto}
+
+/* 步骤交互 */
+.ctrl{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 6px}
+.ctrl button{
+  min-height:44px;padding:8px 16px;border-radius:999px;border:1px solid var(--line2);
+  background:var(--panel2);color:var(--muted);font-family:'Noto Sans SC',sans-serif;font-size:13px;
+  cursor:pointer;transition:all .18s;
+}
+.ctrl button:hover{border-color:var(--accent);color:var(--accent)}
+.ctrl button.on{background:var(--accent);border-color:var(--accent);color:var(--bg);font-weight:600}
+.ctrl button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* 流程步骤 */
+.flow{display:flex;align-items:stretch;gap:8px;flex-wrap:wrap;margin:20px 0}
+.flow .step{flex:1 1 150px;min-width:0;background:var(--panel2);border:1px solid var(--line2);border-radius:10px;padding:10px 12px;font-size:12.5px;color:var(--muted);text-align:center}
+.flow .step b{display:block;color:var(--text);font-size:13px;margin-bottom:2px}
+.flow .arrow{color:var(--accent);font-family:var(--mono);font-size:16px;align-self:center;flex:0 0 auto}
+
+/* 列表 */
+ul.list{list-style:none;margin:8px 0 14px}
+ul.list li{position:relative;padding:5px 0 5px 22px;color:var(--muted);font-size:14px}
+ul.list li::before{content:"";position:absolute;left:4px;top:13px;width:8px;height:8px;border-radius:2px;background:var(--accent);opacity:.75}
+ul.list li b{color:var(--text)}
+
+/* 页脚 */
+footer{border-top:1px solid var(--line);padding:30px 0 44px;color:var(--faint);font-size:12.5px}
+footer .wrap{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
+footer a{color:var(--muted);text-decoration:none}
+footer a:hover{color:var(--accent)}
+
+/* ===== 响应式 ===== */
+@media (max-width:860px){
+  .hero{padding:44px 0 38px}
+  .hero h1{font-size:31px}
+  .hero .sub{font-size:14.5px}
+  section.block{padding:42px 0}
+  .sec-head h2{font-size:21px}
+  .fig svg,.sm svg{min-width:0}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *{transition:none!important}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 顶部导航 ===== -->
+<nav class="top">
+  <div class="bar">
+    <div class="brand">MySQL <em>事务与并发</em></div>
+    <a class="chip" href="#tx">01 事务本质</a>
+    <a class="chip" href="#locks">02 锁体系</a>
+    <a class="chip" href="#iso">03 隔离级别</a>
+    <a class="chip" href="#rw">04 读写的分工</a>
+    <a class="chip" href="#deadlock">05 等待与死锁</a>
+    <a class="chip" href="#log">06 redo / undo</a>
+    <a class="chip" href="#source">07 源码地图</a>
+    <a class="chip min" href="OVERVIEW.html">总览 →</a>
+    <a class="chip min" href="MVCC.html">MVCC →</a>
+    <a class="chip min" href="INDEX.html">索引 →</a>
+  </div>
+</nav>
+
+<!-- ===== Hero ===== -->
+<header class="hero" id="top">
+  <div class="wrap">
+    <div class="kicker">MySQL Server 8.4 LTS · Transaction & Concurrency</div>
+    <h1>MySQL 事务与并发：<span class="grad">ACID、锁与隔离级别</span></h1>
+    <p class="sub">事务是"一批要么全成、要么全废的操作"，并发是"多个事务同时跑还能不错"。MySQL 用两套机制回答这两个问题：<b>锁</b>（悲观地挡掉写写冲突）与 <b>MVCC</b>（乐观地让读写互不阻塞），底层由 <b>redo / undo 日志</b>支撑 ACID。本页从三套机制展开，并把每个知识点对应到 8.4 源码的具体文件与符号。</p>
+    <div class="pillars">
+      <div class="pillar">
+        <div class="n">机制 1 · 锁</div>
+        <div class="t">写-写冲突的裁判</div>
+        <div class="d">行锁 / 间隙锁 / 临键锁，S 与 X 兼容矩阵</div>
+      </div>
+      <div class="pillar">
+        <div class="n">机制 2 · MVCC</div>
+        <div class="t">读-写不互斥</div>
+        <div class="d">快照读走 Read View，当前读才加锁（详见 MVCC 专题）</div>
+      </div>
+      <div class="pillar">
+        <div class="n">机制 3 · 日志</div>
+        <div class="t">redo / undo</div>
+        <div class="d">WAL 保证持久性，undo 保证原子性与回滚</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ===== 01 事务的本质 ===== -->
+<section class="block" id="tx">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="no">01</div>
+      <h2>事务的本质：ACID 与状态机</h2>
+      <div class="en">Transactions</div>
+    </div>
+    <p class="sec-lead">一句话版本：事务把多条 SQL 打包成"<b>要么全部生效、要么全部撤销</b>"的原子单元。ACID 四性不是四个并列特性，而是由日志与锁<b>分层保障</b>的——理清"哪个机制负责哪条承诺"是理解事务源码的第一步。</p>
+
+    <h3 class="subt">ACID 四性与保障机制</h3>
+    <div class="comp-grid">
+      <div class="comp">
+        <div class="tag" style="background:#F26D6D">A</div>
+        <h4>原子性 Atomicity</h4>
+        <p>部分成功 = 全部失败。靠 <b>undo log</b>：事务崩溃或 ROLLBACK 时，用 undo 把已改的行逐条还原。</p>
+        <div class="kv">trx_rollback() / trx_undo<br><span class="srcpath" style="background:transparent;border:none;padding:0">storage/innobase/trx/trx0roll.cc</span></div>
+      </div>
+      <div class="comp">
+        <div class="tag" style="background:#F5B84C">C</div>
+        <h4>一致性 Consistency</h4>
+        <p>约束不破坏。靠<b>应用层 + 引擎约束</b>：外键、唯一键、CHECK 在写入时校验；引擎保证"崩溃前后约束一致"。</p>
+        <div class="kv">唯一性检查 row_ins_dupl_error_with_rec()<br>外键 dict_foreign_t / row0foreign.cc</div>
+      </div>
+      <div class="comp">
+        <div class="tag" style="background:#5BD087">I</div>
+        <h4>隔离性 Isolation</h4>
+        <p>并发事务互不干扰。靠<b>锁 + MVCC</b>：写-写互斥由锁保证，读-写不阻塞由 MVCC 快照保证。</p>
+        <div class="kv">锁：lock0lock.cc<br>MVCC：row_vers / read_view（详见 MVCC 专题）</div>
+      </div>
+      <div class="comp">
+        <div class="tag" style="background:#5EA8E8">D</div>
+        <h4>持久性 Durability</h4>
+        <p>提交即不丢。靠 <b>redo log + WAL</b>：提交前先写重做日志（顺序 IO），数据页延迟落盘，崩溃后按 LSN 重放。</p>
+        <div class="kv">log_write_up_to() / mtr 提交<br><span class="srcpath" style="background:transparent;border:none;padding:0">storage/innobase/log/log0log.cc</span></div>
+      </div>
+    </div>
+    <div class="note"><b>记忆：</b>A 靠 undo、D 靠 redo、I 靠锁+MVCC、C 是前三者共同的结果——事务系统在源码里就是<b>三棵主干</b>：锁（lock）、MVCC（read view + undo 版本链）、日志（redo + undo），其余都是这三者的衍生。</div>
+
+    <h3 class="subt">事务状态机</h3>
+    <p class="para">InnoDB 事务对象 <code class="k">trx_t</code>（<span class="srcpath">storage/<wbr>innobase/<wbr>include/<wbr>trx0trx.h</span>）用 <code class="k">trx_state_t</code> 枚举维护生命周期：写事务先 ACTIVE，COMMIT 时先进入 PREPARED（两阶段提交，见 06 章）再 COMMITTED；失败则回滚到 NOT_STARTED。只读事务不分配 trx_id，这是 8.0 的优化。</p>
+    <div class="sm">
+      <svg viewBox="0 0 900 210" role="img" aria-label="InnoDB 事务状态机">
+        <defs>
+          <marker id="smArr" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#4DD0A8"/></marker>
+        </defs>
+        <!-- 状态节点 -->
+        <g>
+          <rect x="30" y="70" width="150" height="54" rx="10" fill="#1A2330" stroke="#3A4658"/>
+          <text x="105" y="94" text-anchor="middle" fill="#E6EDF3" font-size="13" font-weight="700">NOT_STARTED</text>
+          <text x="105" y="113" text-anchor="middle" fill="#8B9BB4" font-size="10.5" font-family="JetBrains Mono,monospace">尚未开启 / 空闲</text>
+        </g>
+        <g>
+          <rect x="300" y="70" width="150" height="54" rx="10" fill="#1A2330" stroke="#F5B84C" stroke-width="1.5"/>
+          <text x="375" y="94" text-anchor="middle" fill="#E6EDF3" font-size="13" font-weight="700">ACTIVE</text>
+          <text x="375" y="113" text-anchor="middle" fill="#8B9BB4" font-size="10.5" font-family="JetBrains Mono,monospace">执行中 · 持有锁/undo</text>
+        </g>
+        <g>
+          <rect x="560" y="70" width="160" height="54" rx="10" fill="#1A2330" stroke="#7C9CF5" stroke-width="1.5"/>
+          <text x="640" y="94" text-anchor="middle" fill="#E6EDF3" font-size="13" font-weight="700">PREPARED</text>
+          <text x="640" y="113" text-anchor="middle" fill="#8B9BB4" font-size="10.5" font-family="JetBrains Mono,monospace">两阶段提交 · prepare</text>
+        </g>
+        <g>
+          <rect x="760" y="20" width="120" height="44" rx="10" fill="#0F141B" stroke="#5BD087" stroke-width="1.5"/>
+          <text x="820" y="47" text-anchor="middle" fill="#5BD087" font-size="13" font-weight="700">COMMITTED</text>
+        </g>
+        <g>
+          <rect x="760" y="120" width="120" height="44" rx="10" fill="#0F141B" stroke="#F26D6D" stroke-width="1.5"/>
+          <text x="820" y="147" text-anchor="middle" fill="#F26D6D" font-size="13" font-weight="700">ABORTED</text>
+        </g>
+        <!-- 转移箭头 -->
+        <g stroke="#4DD0A8" stroke-width="1.8" fill="none" marker-end="url(#smArr)">
+          <path d="M180,97 C230,97 240,97 295,97"/>
+          <text x="238" y="88" text-anchor="middle" fill="#93A3B8" font-size="11">第一条写语句</text>
+          <path d="M450,97 C490,97 500,97 555,97"/>
+          <text x="503" y="88" text-anchor="middle" fill="#93A3B8" font-size="11">COMMIT</text>
+          <path d="M720,88 L754,50"/>
+          <text x="738" y="58" text-anchor="middle" fill="#5BD087" font-size="11">提交完成</text>
+          <path d="M720,106 L754,138"/>
+          <text x="738" y="158" text-anchor="middle" fill="#F26D6D" font-size="11">失败回滚</text>
+        </g>
+        <g stroke="#F26D6D" stroke-width="1.8" fill="none" stroke-dasharray="6 4" marker-end="url(#smArr)">
+          <path d="M450,124 C420,165 260,165 160,128"/>
+          <text x="300" y="182" text-anchor="middle" fill="#F26D6D" font-size="11">ROLLBACK / 崩溃回滚（undo 还原）</text>
+        </g>
+      </svg>
+      <div class="cap">InnoDB 事务状态（<code class="mono">trx_<wbr>state_<wbr>t</code>，<span class="srcpath">storage/<wbr>innobase/<wbr>include/<wbr>trx0trx.h</span>）：<b>ACTIVE → PREPARED → COMMITTED</b> 是提交路径；<b>ACTIVE → ABORTED</b> 是回滚路径。源码函数：<code class="mono">trx_<wbr>start()</code> / <code class="mono">trx_<wbr>commit()</code> / <code class="mono">trx_<wbr>rollback()</code>。SQL 层事务入口在 <span class="srcpath">sql/<wbr>transaction.cc</span>（<code class="mono">trans_<wbr>commit()</code> / <code class="mono">trans_<wbr>rollback()</code>）。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 02 InnoDB 锁体系 ===== -->
+<section class="block" id="locks">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="no">02</div>
+      <h2>InnoDB 锁体系：粒度、模式与兼容</h2>
+      <div class="en">Lock System</div>
+    </div>
+    <p class="sec-lead">锁是"写-写冲突"的裁判。InnoDB 的锁分两个维度：<b>粒度</b>（表锁 / 行锁）与 <b>模式</b>（共享 S / 排他 X）。行锁是 InnoDB 的默认武器——它实际锁的不是"行记录"，而是<b>索引记录</b>（因此没有索引的 WHERE 会退化成全表加锁）。</p>
+
+    <h3 class="subt">锁的粒度与类型</h3>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th style="width:16%">锁类型</th><th style="width:20%">作用对象</th><th>语义与场景</th><th style="width:22%">源码符号</th></tr>
+        <tr><td><b>表锁 · 意向锁</b><br>IS / IX</td><td>整张表</td><td>行锁的"前置声明"：加行锁前先对表加意向锁，表级操作（DDL）据此判断"表上是否有行被占用"，避免逐行检查</td><td class="mono">lock_table() · LOCK_IS / LOCK_IX</td></tr>
+        <tr><td><b>表锁 · 显式</b><br>LOCK TABLES</td><td>整张表</td><td>SQL 层命令级表锁，8.0 中由 MDL（元数据锁）与引擎表锁协同管理</td><td class="mono">MDL 在 sql/mdl.cc</td></tr>
+        <tr><td><b>行锁 · 记录锁</b><br>Record Lock</td><td>单条索引记录</td><td>锁定一个索引记录（等值命中）；S 锁对应 FOR SHARE，X 锁对应 FOR UPDATE / UPDATE / DELETE</td><td class="mono">lock_rec_lock() · LOCK_REC_NOT_GAP</td></tr>
+        <tr><td><b>行锁 · 间隙锁</b><br>Gap Lock</td><td>记录之间的区间</td><td>锁定"索引记录之间的空隙"，阻止其他事务在区间内插入——防幻读的关键；只作用于 RR 级别</td><td class="mono">LOCK_GAP · gap_descriptor</td></tr>
+        <tr><td><b>行锁 · 临键锁</b><br>Next-Key Lock</td><td>记录 + 前方间隙</td><td>Record Lock + Gap Lock 合并：锁定"左开右闭"区间；RR 级别默认加锁单位</td><td class="mono">LOCK_ORDINARY（默认位）</td></tr>
+        <tr><td><b>插入意向锁</b><br>Insert Intention</td><td>间隙</td><td>INSERT 在插入位置前先声明"我想插进这个间隙"，多个插入意向锁可共存（都只是意向），但互斥于真正的间隙锁</td><td class="mono">LOCK_INSERT_INTENTION</td></tr>
+      </table>
+    </div>
+
+    <h3 class="subt">S / X 兼容矩阵</h3>
+    <p class="para">兼容性决定"能不能共存"：X 与任何锁都冲突，S 只与 S 兼容。矩阵同时适用于表锁与行锁——这是 InnoDB 判断锁冲突的唯一规则（源码 <code class="k">lock_compatible()</code>）。</p>
+    <div class="tbl-wrap">
+      <table class="tbl matrix">
+        <tr><th style="width:22%">已持有 \ 请求</th><th>X（排他）</th><th>S（共享）</th><th>IX（意向排他）</th><th>IS（意向共享）</th></tr>
+        <tr><td class="lab">X（排他）</td><td class="n">冲突</td><td class="n">冲突</td><td class="n">冲突</td><td class="n">冲突</td></tr>
+        <tr><td class="lab">S（共享）</td><td class="n">冲突</td><td class="y">兼容</td><td class="n">冲突</td><td class="y">兼容</td></tr>
+        <tr><td class="lab">IX（意向排他）</td><td class="n">冲突</td><td class="n">冲突</td><td class="y">兼容</td><td class="y">兼容</td></tr>
+        <tr><td class="lab">IS（意向共享）</td><td class="n">冲突</td><td class="y">兼容</td><td class="y">兼容</td><td class="y">兼容</td></tr>
+      </table>
+    </div>
+    <div class="note"><b>关键理解：</b>意向锁（IS/IX）本身不锁数据，它只告诉别人"我这表上有行级 S/X 锁"，让表级操作（如 DDL 的 <code class="mono">LOCK_<wbr>TABLES</code>）能快速判断能否进行。行锁与意向锁在 <span class="srcpath">storage/<wbr>innobase/<wbr>include/<wbr>lock0priv.h</span> 的 <code class="mono">lock_<wbr>t</code> 中统一描述（<code class="mono">type_<wbr>mode</code> 高 4 位是类型，低 4 位是模式）。</div>
+
+    <h3 class="subt">哪些语句会加什么锁</h3>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th style="width:34%">语句</th><th style="width:26%">加锁</th><th>说明</th></tr>
+        <tr><td class="mono">SELECT ... （普通）</td><td>不加锁（快照读）</td><td>走 MVCC Read View，不阻塞任何写；见 04 章</td></tr>
+        <tr><td class="mono">SELECT ... FOR SHARE</td><td>S 行锁（+间隙）</td><td>当前读；其他事务可读不可写</td></tr>
+        <tr><td class="mono">SELECT ... FOR UPDATE</td><td>X 行锁（+间隙）</td><td>当前读；其他事务读可（快照）写不可</td></tr>
+        <tr><td class="mono">UPDATE / DELETE</td><td>X 行锁（+间隙）</td><td>先按 WHERE 定位（当前读）再加 X 锁，然后才修改</td></tr>
+        <tr><td class="mono">INSERT</td><td>X 行锁 + 插入意向锁</td><td>先插入意向锁探测间隙，冲突则等待；插入后对记录持 X 锁</td></tr>
+      </table>
+    </div>
+    <p class="para">加锁的底层入口是 <span class="srcpath">storage/<wbr>innobase/<wbr>lock/<wbr>lock0lock.cc</span>：行锁 <code class="k">lock_rec_lock()</code> 与表锁 <code class="k">lock_table()</code>；等待挂起在 <code class="k">lock_wait_suspend_thread()</code>（05 章详述）。SQL 层通过 <span class="srcpath">sql/<wbr>lock.cc</span>（<code class="mono">Lock_<wbr>tables_<wbr>precheck</code>）与 MDL 管理表级元数据锁。</p>
+  </div>
+</section>
+
+<!-- ===== 03 隔离级别 ===== -->
+<section class="block" id="iso">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="no">03</div>
+      <h2>隔离级别与并发问题</h2>
+      <div class="en">Isolation Levels</div>
+    </div>
+    <p class="sec-lead">隔离级别是"并发正确性"与"并发性能"之间的刻度。MySQL 默认 <b>REPEATABLE READ</b>（与 ANSI 标准默认不同，因为 InnoDB 的 RR 通过 MVCC + 间隙锁实际上消除了幻读）。理解隔离级别，先看它要防住的四种并发问题。</p>
+
+    <h3 class="subt">四种并发问题</h3>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th style="width:16%">问题</th><th style="width:24%">发生条件</th><th>举例（余额账户）</th><th style="width:22%">被谁防住</th></tr>
+        <tr><td><b>脏读</b><br>Dirty Read</td><td>读到未提交事务的修改</td><td>A 转出 100 未提交，B 读到余额少了 100</td><td>RC 及以上（MVCC 只看已提交版本）</td></tr>
+        <tr><td><b>不可重复读</b><br>Non-Repeatable</td><td>同一事务两次读，值被其他已提交事务改掉</td><td>T1 两次查余额，中间 T2 提交了扣款</td><td>RR（MVCC 固定快照）</td></tr>
+        <tr><td><b>幻读</b><br>Phantom</td><td>同一事务两次范围查询，行数变化（其他事务插入）</td><td>T1 查"余额&gt;0"得 3 行，T2 插入 1 行后 T1 再查得 4 行</td><td>RR 的间隙锁 / 临键锁（当前读场景）</td></tr>
+        <tr><td><b>丢失更新</b><br>Lost Update</td><td>两个事务读-改-写同一行，后者覆盖前者</td><td>T1、T2 都读到 100，各自 +50 后写回，最终 150 而非 200</td><td>需应用层 FOR UPDATE 或乐观锁（引擎不自动防）</td></tr>
+      </table>
+    </div>
+
+    <h3 class="subt">隔离级别 × 并发问题</h3>
+    <div class="tbl-wrap">
+      <table class="tbl matrix">
+        <tr><th style="width:24%">隔离级别</th><th>脏读</th><th>不可重复读</th><th>幻读</th><th style="width:24%">实现要点（InnoDB）</th></tr>
+        <tr><td class="lab">READ UNCOMMITTED</td><td class="warn">可能</td><td class="warn">可能</td><td class="warn">可能</td><td>不加锁读，能看到未提交版本（几乎不用）</td></tr>
+        <tr><td class="lab">READ COMMITTED</td><td class="y">防住</td><td class="warn">可能</td><td class="warn">可能</td><td>每条语句新建 Read View；无间隙锁</td></tr>
+        <tr><td class="lab">REPEATABLE READ（默认）</td><td class="y">防住</td><td class="y">防住</td><td class="y">防住（快照读）；当前读靠临键锁</td><td>事务首次读时建 Read View；当前读加临键锁</td></tr>
+        <tr><td class="lab">SERIALIZABLE</td><td class="y">防住</td><td class="y">防住</td><td class="y">防住</td><td>所有读都变当前读（自动加锁）</td></tr>
+      </table>
+    </div>
+    <div class="note"><b>源码：</b>隔离级别在 SQL 层由系统变量 <code class="k">transaction_isolation</code> 承载（<span class="srcpath">sql/<wbr>sys_vars.cc</span> 的 <code class="mono">Transaction_<wbr>isolation</code>），InnoDB 侧存入 <code class="mono">trx_<wbr>t::<wbr>isolation_<wbr>level</code>（<span class="srcpath">storage/<wbr>innobase/<wbr>include/<wbr>trx0trx.h</span>）；判定"能否看到某版本"在 <span class="srcpath">storage/<wbr>innobase/<wbr>read/<wbr>read0read.cc</span> 的 <code class="mono">ReadView::<wbr>changes_<wbr>visible()</code>（MVCC 专题已详述）。</div>
+
+    <h3 class="subt">RR 为什么能防幻读：临键锁的"左开右闭"</h3>
+    <p class="para">RR 级别下，当前读（FOR UPDATE / UPDATE / DELETE）加的是<b>临键锁</b>：锁住命中记录本身 + 记录前方间隙，把"记录之间的空位"也圈住。这样其他事务既改不了这些行，也<b>插不进这些空位</b>——第二次范围查询的行数就不会变。这也是 InnoDB 与标准 RR 的最大差异：MySQL 的 RR 实际达到了类似可串行化（当前读部分）的效果。</p>
+    <div class="fig">
+      <svg viewBox="0 0 900 240" role="img" aria-label="临键锁左开右闭区间示意">
+        <g font-family="'JetBrains Mono',monospace" font-size="13">
+          <line x1="60" y1="150" x2="860" y2="150" stroke="#3A4658" stroke-width="2"/>
+          <g text-anchor="middle" fill="#E6EDF3">
+            <text x="120" y="136">10</text>
+            <text x="280" y="136">20</text>
+            <text x="440" y="136">30</text>
+            <text x="600" y="136">40</text>
+            <text x="760" y="136">50</text>
+          </g>
+          <g stroke="#3A4658" stroke-width="2">
+            <line x1="120" y1="142" x2="120" y2="158"/>
+            <line x1="280" y1="142" x2="280" y2="158"/>
+            <line x1="440" y1="142" x2="440" y2="158"/>
+            <line x1="600" y1="142" x2="600" y2="158"/>
+            <line x1="760" y1="142" x2="760" y2="158"/>
+          </g>
+          <rect x="300" y="96" width="164" height="34" rx="6" fill="rgba(245,184,76,.14)" stroke="#F5B84C" stroke-width="1.5"/>
+          <text x="382" y="118" text-anchor="middle" fill="#F5B84C" font-size="11.5" font-family="'Noto Sans SC',sans-serif">临键锁 (20, 30]</text>
+          <path d="M292,168 L296,182 L304,182 L300,168" fill="#F5B84C"/>
+          <rect x="440" y="168" width="6" height="6" fill="#F5B84C"/>
+          <text x="452" y="180" fill="#93A3B8" font-size="11" font-family="'Noto Sans SC',sans-serif">左开（20 不锁）· 右闭（30 锁住）</text>
+          <text x="60" y="205" fill="#93A3B8" font-size="11.5" font-family="'Noto Sans SC',sans-serif">WHERE id = 30：临键锁覆盖 (20,30] —— 禁止插入 21~29，也禁止改/删 30；20 本身不受影响</text>
+        </g>
+      </svg>
+      <div class="cap">临键锁 = 记录锁 + 前间隙锁。MySQL 官方把 RR 的当前读描述为"<b>锁覆盖到左开右闭区间</b>"；<span class="srcpath">storage/<wbr>innobase/<wbr>lock/<wbr>lock0lock.cc</span> 中 <code class="mono">lock_<wbr>rec_<wbr>has_<wbr>expl_<wbr>gap()</code> / <code class="mono">LOCK_<wbr>ORDINARY</code> 实现该语义。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 04 读写的分工 ===== -->
+<section class="block" id="rw">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="no">04</div>
+      <h2>快照读与当前读：并发控制的分工</h2>
+      <div class="en">Snapshot vs Current Read</div>
+    </div>
+    <p class="sec-lead">InnoDB 的并发控制不是"要么锁死、要么放任"，而是把读分成两种：<b>快照读</b>（不加锁，走 MVCC）和<b>当前读</b>（加锁，读最新已提交版本）。<b>读-写不互斥</b>正是靠"快照读"实现的——这是 InnoDB 高并发吞吐的根基。</p>
+
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th style="width:16%">维度</th><th>快照读（一致性读）</th><th>当前读（加锁读）</th></tr>
+        <tr><td><b>语句</b></td><td class="mono">SELECT（普通）</td><td class="mono">SELECT ... FOR SHARE / FOR UPDATE、UPDATE、DELETE、INSERT</td></tr>
+        <tr><td><b>读取内容</b></td><td>Read View 可见的版本（可能不是最新，但"读的时候是稳定的"）</td><td>最新已提交版本（必须是最新的，否则写错行）</td></tr>
+        <tr><td><b>加锁</b></td><td class="ok">不加锁</td><td class="no">加 S/X 行锁（+间隙锁按隔离级别）</td></tr>
+        <tr><td><b>阻塞</b></td><td>永不阻塞、永不被阻塞（无锁）</td><td>与其他写锁互斥，可能锁等待</td></tr>
+        <tr><td><b>快照时机</b></td><td>RR：事务内首次读建 Read View；RC：每条语句新建</td><td>无快照，始终读最新</td></tr>
+        <tr><td><b>对应源码</b></td><td colspan="2" class="mono">InnoDB 统一走 <span class="srcpath">storage/<wbr>innobase/<wbr>row/<wbr>row0sel.cc</span> 的 <span class="mono">row_search_mvcc()</span>；是否加锁由 <span class="mono">prebuilt-&gt;select_lock_type</span>（<span class="mono">LOCK_NONE</span> / <span class="mono">LOCK_S</span> / <span class="mono">LOCK_X</span>）决定</td></tr>
+      </table>
+    </div>
+
+    <h3 class="subt">典型场景推演：读-写并行</h3>
+    <p class="para">T1 开启事务做<b>快照读</b>（普通 SELECT），T2 同时<b>更新并提交</b>同一行——两者完全并行：T1 读自己的快照（旧值），T2 写新值。若 T1 之后做<b>当前读</b>（FOR UPDATE / UPDATE），才会看到最新值，并可能因 T2 仍持锁而等待。</p>
+    <div class="fig">
+      <svg viewBox="0 0 900 300" role="img" aria-label="快照读与当前读对比泳道">
+        <g font-family="'Noto Sans SC',sans-serif">
+          <rect x="20" y="30" width="860" height="100" rx="10" fill="rgba(77,208,168,.05)" stroke="rgba(77,208,168,.2)"/>
+          <rect x="20" y="150" width="860" height="110" rx="10" fill="rgba(124,156,245,.05)" stroke="rgba(124,156,245,.2)"/>
+          <text x="40" y="52" fill="#4DD0A8" font-size="12.5" font-weight="700">T1 事务（快照读）</text>
+          <text x="40" y="172" fill="#7C9CF5" font-size="12.5" font-weight="700">T2 事务（当前读）</text>
+          <line x1="40" y1="80" x2="860" y2="80" stroke="#4DD0A8" stroke-width="2"/>
+          <circle cx="120" cy="80" r="5" fill="#4DD0A8"/>
+          <text x="120" y="66" text-anchor="middle" fill="#E6EDF3" font-size="12">BEGIN</text>
+          <circle cx="330" cy="80" r="5" fill="#4DD0A8"/>
+          <text x="330" y="66" text-anchor="middle" fill="#E6EDF3" font-size="12">SELECT 余额（建 Read View）</text>
+          <text x="330" y="102" text-anchor="middle" fill="#8B9BB4" font-size="11">看到余额 = 100（快照）</text>
+          <circle cx="620" cy="80" r="5" fill="#4DD0A8"/>
+          <text x="620" y="66" text-anchor="middle" fill="#E6EDF3" font-size="12">SELECT 余额（仍读快照）</text>
+          <text x="620" y="102" text-anchor="middle" fill="#8B9BB4" font-size="11">还是 100 —— 不受 T2 影响</text>
+          <circle cx="800" cy="80" r="5" fill="#4DD0A8"/>
+          <text x="800" y="66" text-anchor="middle" fill="#E6EDF3" font-size="12">COMMIT</text>
+          <line x1="40" y1="200" x2="860" y2="200" stroke="#7C9CF5" stroke-width="2"/>
+          <circle cx="120" cy="200" r="5" fill="#7C9CF5"/>
+          <text x="120" y="186" text-anchor="middle" fill="#E6EDF3" font-size="12">BEGIN</text>
+          <circle cx="480" cy="200" r="5" fill="#7C9CF5"/>
+          <text x="480" y="186" text-anchor="middle" fill="#E6EDF3" font-size="12">UPDATE 余额 = 100 - 30</text>
+          <text x="480" y="222" text-anchor="middle" fill="#8B9BB4" font-size="11">当前读 + X 锁 + 写 undo 版本链</text>
+          <circle cx="560" cy="200" r="5" fill="#7C9CF5"/>
+          <text x="560" y="224" text-anchor="middle" fill="#8B9BB4" font-size="11">COMMIT</text>
+          <rect x="400" y="250" width="180" height="34" rx="8" fill="#151C26" stroke="#3A4658"/>
+          <text x="490" y="272" text-anchor="middle" fill="#93A3B8" font-size="12">T1 快照读 与 T2 写全程并行</text>
+        </g>
+      </svg>
+      <div class="cap">同一行的读写并行：T1 的快照读不因 T2 的写锁而阻塞（MVCC 版本链 + Read View）；直到 T1 改为当前读才会与 T2 的 X 锁相遇。源码关键：<code class="mono">row_<wbr>search_<wbr>mvcc()</code> 中 <code class="mono">sel_<wbr>set_<wbr>rec_<wbr>lock()</code> 决定是否加锁，<code class="mono">ReadView</code> 决定读哪个版本。</div>
+    </div>
+
+    <div class="note"><b>与 MVCC 专题的关系：</b>本页 04 章讲"快照读与当前读的分工"，<a href="MVCC.html" style="color:var(--accent)">MVCC 专题</a>则深入 Read View 的构造、<code class="mono">changes_<wbr>visible()</code> 判定算法与版本链的组装——两者合起来才是 InnoDB 读路径的全貌。</div>
+  </div>
+</section>
+
+<!-- ===== 05 锁等待与死锁 ===== -->
+<section class="block" id="deadlock">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="no">05</div>
+      <h2>锁等待与死锁</h2>
+      <div class="en">Lock Wait & Deadlock</div>
+    </div>
+    <p class="sec-lead">锁冲突不可避免，冲突的结果只有两种：<b>等待</b>（对方很快释放）或<b>死锁</b>（双方互等、谁也无法继续）。InnoDB 用"等待超时 + 死锁检测"两套机制兜底。</p>
+
+    <h3 class="subt">锁等待：挂起线程与超时</h3>
+    <p class="para">加锁失败时，当前事务进入等待：InnoDB 把线程挂起在 <code class="k">lock_wait_suspend_thread()</code>（<span class="srcpath">storage/<wbr>innobase/<wbr>lock/<wbr>lock0wait.cc</span>），并周期性检查锁是否可得、是否超时。超时上限由 <code class="k">innodb_lock_wait_timeout</code>（默认 50 秒）控制；超时后事务<b>报错并回滚</b>（仅回滚当前语句或整个事务，取决于 <code class="k">innodb_rollback_on_timeout</code>）。</p>
+    <div class="note warn"><b>调优点：</b>线上高并发场景 50 秒太长——等待链会堆积、连接被占满。常见做法是调到 2~5 秒，让等锁失败快速暴露，而不是拖垮整个连接池。</div>
+
+    <h3 class="subt">死锁：互等即环</h3>
+    <p class="para">死锁的本质是<b>等待图（wait-for graph）中出现环</b>。下面的经典场景：T1 持有行 A、想锁行 B；T2 持有行 B、想锁行 A——两个事务各持一锁、各等一锁，永远解不开。</p>
+    <div class="fig">
+      <svg viewBox="0 0 900 320" role="img" aria-label="两个事务互等造成死锁">
+        <g font-family="'Noto Sans SC',sans-serif">
+          <rect x="40" y="30" width="230" height="120" rx="12" fill="#151C26" stroke="#4DD0A8" stroke-width="1.5"/>
+          <text x="155" y="58" text-anchor="middle" fill="#4DD0A8" font-size="14" font-weight="700">T1</text>
+          <text x="155" y="82" text-anchor="middle" fill="#E6EDF3" font-size="12">UPDATE 行 A  → 持锁 A</text>
+          <text x="155" y="104" text-anchor="middle" fill="#E6EDF3" font-size="12">UPDATE 行 B  → 等待 B…</text>
+          <text x="155" y="130" text-anchor="middle" fill="#F26D6D" font-size="11.5">等 T2 释放 B</text>
+          <rect x="630" y="30" width="230" height="120" rx="12" fill="#151C26" stroke="#7C9CF5" stroke-width="1.5"/>
+          <text x="745" y="58" text-anchor="middle" fill="#7C9CF5" font-size="14" font-weight="700">T2</text>
+          <text x="745" y="82" text-anchor="middle" fill="#E6EDF3" font-size="12">UPDATE 行 B  → 持锁 B</text>
+          <text x="745" y="104" text-anchor="middle" fill="#E6EDF3" font-size="12">UPDATE 行 A  → 等待 A…</text>
+          <text x="745" y="130" text-anchor="middle" fill="#F26D6D" font-size="11.5">等 T1 释放 A</text>
+          <rect x="330" y="60" width="120" height="56" rx="10" fill="#0F141B" stroke="#F5B84C" stroke-width="1.5"/>
+          <text x="390" y="94" text-anchor="middle" fill="#F5B84C" font-size="13" font-weight="700">行 A</text>
+          <rect x="480" y="200" width="120" height="56" rx="10" fill="#0F141B" stroke="#F5B84C" stroke-width="1.5"/>
+          <text x="540" y="234" text-anchor="middle" fill="#F5B84C" font-size="13" font-weight="700">行 B</text>
+          <g stroke="#5BD087" stroke-width="2" fill="none">
+            <path d="M270,66 C310,66 320,66 330,78"/>
+            <text x="300" y="52" text-anchor="middle" fill="#5BD087" font-size="11">持有</text>
+            <path d="M860,78 C850,210 660,210 600,222"/>
+            <text x="760" y="200" text-anchor="middle" fill="#5BD087" font-size="11">持有</text>
+          </g>
+          <g stroke="#F26D6D" stroke-width="2" stroke-dasharray="7 4" fill="none">
+            <path d="M230,120 C230,200 500,196 480,212"/>
+            <text x="360" y="190" text-anchor="middle" fill="#F26D6D" font-size="11">等待 B</text>
+            <path d="M640,120 C640,60 480,60 452,62"/>
+            <text x="560" y="52" text-anchor="middle" fill="#F26D6D" font-size="11">等待 A</text>
+          </g>
+          <defs>
+            <marker id="dlArr" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#F26D6D"/></marker>
+          </defs>
+          <rect x="240" y="262" width="420" height="42" rx="10" fill="rgba(242,109,109,.08)" stroke="rgba(242,109,109,.4)"/>
+          <text x="450" y="288" text-anchor="middle" fill="#F26D6D" font-size="13">等待图成环（T1→B→T2→A→T1）→ 死锁</text>
+        </g>
+      </svg>
+      <div class="cap">死锁检测：InnoDB 周期性地构建<b>等待图</b>（<span class="srcpath">storage/<wbr>innobase/<wbr>lock/<wbr>lock0wait.cc</span> 的 <code class="mono">lock_<wbr>deadlock_<wbr>occurs()</code>），发现环后<b>选择回滚代价最小的事务</b>（undo 行数最少者），回滚并返回 <code class="mono">ER_<wbr>LOCK_<wbr>DEADLOCK</code>（1213）错误；开关 <code class="k">innodb_deadlock_detect</code>。</div>
+    </div>
+
+    <h3 class="subt">死锁示例与处置</h3>
+    <pre class="code">-- 事务 1                            -- 事务 2
+BEGIN;                               BEGIN;
+UPDATE account SET b=b-10 WHERE id=1;      UPDATE account SET b=b-10 WHERE id=2;
+UPDATE account SET b=b+10 WHERE id=2;      UPDATE account SET b=b+10 WHERE id=1;   ← 死锁
+COMMIT;                              -- 其中一个收到: Deadlock found (1213)</pre>
+    <ul class="list">
+      <li><b>业务侧：</b>应用必须捕获 1213 并<b>重试整个事务</b>——死锁是引擎的正常行为，不是 bug</li>
+      <li><b>设计侧：</b>让所有事务按<b>同一顺序</b>访问资源（如都先 id=1 再 id=2），破坏"环"</li>
+      <li><b>诊断：</b><code class="k">SHOW ENGINE INNODB STATUS</code> 的 <code class="k">LATEST DETECTED DEADLOCK</code> 段给出持锁/等待的完整回溯</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ===== 06 redo / undo ===== -->
+<section class="block" id="log">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="no">06</div>
+      <h2>redo / undo：ACID 的日志底座</h2>
+      <div class="en">Redo & Undo</div>
+    </div>
+    <p class="sec-lead">锁和 MVCC 解决"并发时不错"，日志解决"崩溃时不丢、不半截"。redo log 保证<b>持久性</b>（已提交不丢），undo log 保证<b>原子性</b>（未提交能回滚），两者配合完成崩溃恢复。</p>
+
+    <h3 class="subt">redo log：WAL 与 LSN</h3>
+    <div class="flow">
+      <div class="step"><b>① 修改内存页</b><br>数据页在 buffer pool 中修改，不立即落盘</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>② 写 redo 日志</b><br>把"页改动"追加到 redo log buffer（顺序 IO），记录 LSN</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>③ 提交确认</b><br>日志落盘（fsync）后，事务才算提交成功</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>④ 后台刷脏</b><br>脏页按 checkpoint 延迟落盘</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>⑤ 崩溃重放</b><br>启动时按 LSN 从 checkpoint 重放 redo</div>
+    </div>
+    <p class="para">这就是 <b>WAL（Write-Ahead Logging）</b>：日志先落盘、数据后落盘，顺序写远快于随机写。<b>LSN（Log Sequence Number）</b> 单调递增，是 redo、数据页、checkpoint 对齐的"全局时钟"。8.0 引入 <code class="k">innodb_redo_log_capacity</code>（默认 100MB）代替旧的固定日志文件组，支持动态扩容。</p>
+    <div class="comp-grid">
+      <div class="comp">
+        <div class="tag" style="background:#5EA8E8">源码</div>
+        <h4>redo 模块</h4>
+        <div class="kv"><span class="srcpath" style="background:transparent;border:none;padding:0">storage/innobase/log/log0log.cc</span><br>log_write_up_to() · log_buffer<br>mtr 提交：<span class="hl">mtr_commit()</span>（mini-transaction）<br>崩溃恢复：<span class="srcpath" style="background:transparent;border:none;padding:0">storage/innobase/log/log0recv.cc</span></div>
+      </div>
+      <div class="comp">
+        <div class="tag" style="background:#F26D6D">源码</div>
+        <h4>undo 模块</h4>
+        <div class="kv"><span class="srcpath" style="background:transparent;border:none;padding:0">storage/innobase/trx/trx0undo.cc</span><br>回滚段：<span class="hl">trx_rseg_t</span>（trx0rseg.h）<br>版本链：<span class="hl">roll_ptr → undo 记录</span><br>清理：<span class="hl">purge 线程</span>（srv0srv.cc）</div>
+      </div>
+    </div>
+
+    <h3 class="subt">undo log：原子性与版本链</h3>
+    <p class="para">每次修改行前，InnoDB 先写一条 <b>undo 记录</b>（存旧值），并挂到该行的<b>版本链</b>上（行的隐藏列 <code class="k">roll_ptr</code> 指向链头）。undo 有两个读者：<b>回滚</b>（事务失败时沿链还原旧值）和 <b>MVCC</b>（快照读沿链找可见版本）。已提交且无快照引用的 undo 记录，由后台 <b>purge 线程</b>回收。</p>
+    <div class="note"><b>源码联动：</b>回滚走 <span class="srcpath">storage/<wbr>innobase/<wbr>trx/<wbr>trx0roll.cc</span> 的 <code class="mono">trx_<wbr>rollback()</code>；undo 记录类型在 <span class="srcpath">storage/<wbr>innobase/<wbr>include/<wbr>trx0rec.h</span>（<code class="mono">TRX_<wbr>UNDO_<wbr>INSERT_<wbr>REC</code> / <code class="mono">TRX_<wbr>UNDO_<wbr>UPD_<wbr>EXIST_<wbr>REC</code>）；MVCC 沿链查找见 <span class="srcpath">storage/<wbr>innobase/<wbr>row/<wbr>row0vers.cc</span> 的 <code class="mono">row_<wbr>vers_<wbr>build_<wbr>for_<wbr>consistent_<wbr>read()</code>。</div>
+
+    <h3 class="subt">两阶段提交：redo 与 binlog 的一致性</h3>
+    <p class="para">开启 binlog 后，一次提交涉及两套日志（引擎 redo 与 SQL 层 binlog），必须用<b>两阶段提交</b>保证崩溃时两者不矛盾（否则恢复后主从数据不一致）。8.0 中 binlog 写入演进为<b>组提交</b>（group commit）合并 fsync。</p>
+    <div class="fig">
+      <svg viewBox="0 0 900 240" role="img" aria-label="两阶段提交流程">
+        <g font-family="'Noto Sans SC',sans-serif">
+          <rect x="30" y="40" width="180" height="70" rx="10" fill="#151C26" stroke="#3A4658"/>
+          <text x="120" y="68" text-anchor="middle" fill="#E6EDF3" font-size="13" font-weight="700">① prepare</text>
+          <text x="120" y="92" text-anchor="middle" fill="#8B9BB4" font-size="11.5">引擎写 redo（prepare 态）</text>
+          <rect x="360" y="40" width="180" height="70" rx="10" fill="#151C26" stroke="#3A4658"/>
+          <text x="450" y="68" text-anchor="middle" fill="#E6EDF3" font-size="13" font-weight="700">② binlog 落盘</text>
+          <text x="450" y="92" text-anchor="middle" fill="#8B9BB4" font-size="11.5">SQL 层写 binlog（含 XID）</text>
+          <rect x="690" y="40" width="180" height="70" rx="10" fill="#151C26" stroke="#3A4658"/>
+          <text x="780" y="68" text-anchor="middle" fill="#E6EDF3" font-size="13" font-weight="700">③ commit</text>
+          <text x="780" y="92" text-anchor="middle" fill="#8B9BB4" font-size="11.5">引擎提交，redo 标记 commit</text>
+          <g stroke="#4DD0A8" stroke-width="2" fill="none">
+            <path d="M210,75 C250,75 280,75 355,75"/>
+            <path d="M540,75 C590,75 620,75 685,75"/>
+          </g>
+          <rect x="90" y="150" width="720" height="62" rx="10" fill="rgba(245,184,76,.07)" stroke="rgba(245,184,76,.3)"/>
+          <text x="450" y="176" text-anchor="middle" fill="#F5B84C" font-size="12.5" font-weight="700">崩溃在任意两步之间怎么办？</text>
+          <text x="450" y="198" text-anchor="middle" fill="#93A3B8" font-size="12">恢复时按 binlog 中的 XID 与 redo 的 prepare/commit 状态对齐：<b>binlog 有 XID → 补提交；没有 → 回滚</b></text>
+        </g>
+      </svg>
+      <div class="cap">两阶段提交：<b>prepare → binlog → commit</b>。源码：<span class="srcpath">sql/<wbr>binlog.cc</span> 的 <code class="mono">MYSQL_<wbr>BIN_<wbr>LOG::<wbr>commit()</code> 与 <span class="srcpath">storage/<wbr>innobase/<wbr>handler/<wbr>ha_innodb.cc</span> 的 <code class="mono">innobase_<wbr>commit()</code> / <code class="mono">innobase_<wbr>prepare()</code>；恢复对账在 <code class="mono">recover_<wbr>from_<wbr>binlog_<wbr>xids()</code>。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 07 源码地图 ===== -->
+<section class="block" id="source">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="no">07</div>
+      <h2>源码地图：知识点 → 文件 → 符号</h2>
+      <div class="en">Source Map</div>
+    </div>
+    <p class="sec-lead">按"读源码"的路径组织：<b>先读事务对象</b>（trx_t 长什么样）→ <b>再读锁系统</b>（冲突怎么判）→ <b>最后读日志</b>（崩溃怎么恢复）。每个入口都标注 8.4 分支的关键符号。</p>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th style="width:20%">知识点</th><th style="width:34%">源码文件</th><th>关键符号</th></tr>
+        <tr><td><b>事务对象与状态机</b></td><td class="mono">storage/innobase/include/trx0trx.h</td><td class="mono">trx_t · trx_state_t · trx_start() / trx_commit() / trx_rollback()</td></tr>
+        <tr><td><b>事务 SQL 入口</b></td><td class="mono">sql/transaction.cc</td><td class="mono">trans_commit() · trans_rollback() · trans_begin()</td></tr>
+        <tr><td><b>锁对象与模式</b></td><td class="mono">storage/innobase/include/lock0priv.h</td><td class="mono">lock_t · lock_mode · LOCK_S / LOCK_X / LOCK_GAP / LOCK_ORDINARY / LOCK_INSERT_INTENTION</td></tr>
+        <tr><td><b>加锁与兼容判定</b></td><td class="mono">storage/innobase/lock/lock0lock.cc</td><td class="mono">lock_rec_lock() · lock_table() · lock_compatible()</td></tr>
+        <tr><td><b>锁等待与死锁检测</b></td><td class="mono">storage/innobase/lock/lock0wait.cc</td><td class="mono">lock_wait_suspend_thread() · lock_deadlock_occurs()</td></tr>
+        <tr><td><b>隔离级别</b></td><td class="mono">trx0trx.h + sql/sys_vars.cc</td><td class="mono">trx_t::isolation_level · Transaction_isolation</td></tr>
+        <tr><td><b>Read View 判定</b></td><td class="mono">storage/innobase/read/read0read.cc</td><td class="mono">ReadView::changes_visible() · view_open()</td></tr>
+        <tr><td><b>行搜索与加锁判定</b></td><td class="mono">storage/innobase/row/row0sel.cc</td><td class="mono">row_search_mvcc() · sel_set_rec_lock()</td></tr>
+        <tr><td><b>回滚</b></td><td class="mono">storage/innobase/trx/trx0roll.cc</td><td class="mono">trx_rollback() · trx_rollback_to_savepoint()</td></tr>
+        <tr><td><b>undo 记录与回滚段</b></td><td class="mono">storage/innobase/trx/trx0undo.cc · include/trx0rec.h · trx0rseg.h</td><td class="mono">trx_rseg_t · TRX_UNDO_INSERT_REC / TRX_UNDO_UPD_EXIST_REC</td></tr>
+        <tr><td><b>版本链构建（MVCC）</b></td><td class="mono">storage/innobase/row/row0vers.cc</td><td class="mono">row_vers_build_for_consistent_read()</td></tr>
+        <tr><td><b>redo 写入与 mtr</b></td><td class="mono">storage/innobase/log/log0log.cc</td><td class="mono">log_write_up_to() · mtr_commit() · lsn</td></tr>
+        <tr><td><b>崩溃恢复</b></td><td class="mono">storage/innobase/log/log0recv.cc</td><td class="mono">recv_recovery_from_checkpoint_start()</td></tr>
+        <tr><td><b>binlog 两阶段提交</b></td><td class="mono">sql/binlog.cc + handler/ha_innodb.cc</td><td class="mono">MYSQL_BIN_LOG::commit() · innobase_prepare() / innobase_commit() · recover_from_binlog_xids()</td></tr>
+        <tr><td><b>元数据锁 MDL</b></td><td class="mono">sql/mdl.cc</td><td class="mono">MDL_context · MDL_request</td></tr>
+        <tr><td><b>purge 清理线程</b></td><td class="mono">storage/innobase/srv/srv0srv.cc</td><td class="mono">srv_purge_coordinator_thread()</td></tr>
+      </table>
+    </div>
+    <div class="note"><b>建议阅读顺序：</b>① <code class="mono">trx0trx.h</code> 认识事务 → ② <code class="mono">lock0priv.h / lock0lock.cc</code> 认识锁 → ③ <code class="mono">row0sel.cc</code> 认识读写路径（锁与 MVCC 交汇处）→ ④ <code class="mono">log0log.cc / trx0undo.cc</code> 认识日志 → ⑤ <code class="mono">sql/binlog.cc</code> 认识两阶段提交。</div>
+  </div>
+</section>
+
+<!-- ===== 页脚 ===== -->
+<footer>
+  <div class="wrap">
+    <div>MySQL Server 8.4 LTS 源码学习系列 · 本页为知识梳理，代码路径基于 8.4 分支</div>
+    <div><a href="OVERVIEW.html">知识图谱总览</a> · <a href="MVCC.html">MVCC 专题</a> · <a href="INDEX.html">索引专题</a> · <a href="TRANSACTION.html">事务与并发</a></div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  'use strict';
+  var chips = Array.prototype.slice.call(document.querySelectorAll('nav.top a.chip'));
+  var secs = Array.prototype.slice.call(document.querySelectorAll('section.block'));
+  if('IntersectionObserver' in window && chips.length){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){
+          var id = en.target.id;
+          chips.forEach(function(ch){
+            if(ch.getAttribute('href') === '#'+id){ ch.style.color='#4DD0A8'; ch.style.borderColor='#4DD0A8'; }
+            else { ch.style.color=''; ch.style.borderColor=''; }
+          });
+        }
+      });
+    },{ rootMargin:'-30% 0px -60% 0px' });
+    secs.forEach(function(s){ io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>
