@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MySQL 索引 · B+树 · InnoDB 存储与查询优化 · MySQL Server 8.4 源码专题</title>
+<link rel="preconnect" href="https://miaoda.feishu.cn">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --bg:#0F141B; --bg2:#0B0F15; --panel:#151C26; --panel2:#1A2330; --panel3:#202B3B;
+  --line:rgba(148,163,184,.16); --line2:rgba(148,163,184,.28);
+  --text:#E6EDF3; --muted:#93A3B8; --faint:#6B7A90;
+  --accent:#5EA8E8; --accent2:#8A7CF5; --accent-dim:rgba(94,168,232,.12);
+  --ok:#5BD087; --no:#F26D6D; --warn:#F5B84C; --idle:#8B9BB4;
+  --mono:'JetBrains Mono','Consolas','Courier New',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth;overflow-x:clip}
+body{background:var(--bg);color:var(--text);font-family:'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased;overflow-x:clip}
+::selection{background:rgba(94,168,232,.25)}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+/* ===== 顶部导航 ===== */
+nav.top{position:sticky;top:0;z-index:50;background:rgba(15,20,27,.82);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+nav.top .bar{max-width:1120px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:8px;overflow-x:auto;scrollbar-width:none}
+nav.top .bar::-webkit-scrollbar{display:none}
+nav.top .brand{font-weight:700;font-size:14px;white-space:nowrap;color:var(--accent);letter-spacing:.5px;margin-right:8px}
+nav.top .brand em{font-style:normal;color:var(--text)}
+nav.top a.chip{display:inline-block;padding:5px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted);font-size:12.5px;text-decoration:none;white-space:nowrap;transition:all .18s}
+nav.top a.chip:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-dim)}
+nav.top a.chip.min{opacity:.55}
+nav.top a.chip.min:hover{opacity:1}
+
+/* ===== Hero ===== */
+header.hero{position:relative;overflow:hidden;padding:64px 0 56px;border-bottom:1px solid var(--line)}
+header.hero::before{content:"";position:absolute;inset:0;background:
+  radial-gradient(620px 320px at 12% 0%,rgba(94,168,232,.12),transparent 60%),
+  radial-gradient(520px 280px at 88% 25%,rgba(138,124,245,.10),transparent 60%);pointer-events:none}
+.hero .kicker{display:inline-flex;align-items:center;gap:8px;font-size:12px;letter-spacing:2.5px;color:var(--accent);font-weight:600;margin-bottom:18px}
+.hero .kicker::before{content:"";width:26px;height:1px;background:var(--accent)}
+.hero h1{font-size:44px;font-weight:900;line-height:1.2;letter-spacing:.5px}
+.hero h1 .grad{background:linear-gradient(90deg,#5EA8E8,#8A7CF5);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero .sub{margin:18px 0 32px;color:var(--muted);font-size:16px;max-width:780px}
+.hero .sub b{color:var(--text);font-weight:600}
+.pillars{display:flex;gap:16px;flex-wrap:wrap}
+.pillar{flex:1 1 220px;min-width:0;padding:16px 18px;background:linear-gradient(160deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:14px}
+.pillar .n{font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:1px}
+.pillar .t{font-weight:700;margin:6px 0 4px;font-size:15px}
+.pillar .d{color:var(--muted);font-size:13px}
+
+/* ===== 章节通用 ===== */
+section.block{padding:56px 0;border-bottom:1px solid var(--line);scroll-margin-top:64px}
+.sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:12px}
+.sec-head .no{font-family:var(--mono);font-size:14px;color:var(--accent);font-weight:600;white-space:nowrap}
+.sec-head h2{font-size:26px;font-weight:900;letter-spacing:.3px}
+.sec-head .en{color:var(--faint);font-size:12px;letter-spacing:2px;text-transform:uppercase}
+.sec-lead{color:var(--muted);font-size:14.5px;max-width:880px;margin-bottom:26px}
+.sec-lead b{color:var(--text)}
+
+h3.subt{font-size:17px;font-weight:700;margin:30px 0 12px;padding-left:12px;border-left:3px solid var(--accent)}
+p.para{color:var(--muted);font-size:14.5px;margin-bottom:10px}
+p.para b{color:var(--text)}
+code.k{font-family:var(--mono);font-size:12.5px;background:var(--panel3);border:1px solid var(--line);border-radius:4px;padding:1px 6px;color:var(--accent2)}
+
+/* 源码路径 */
+.srcpath{font-family:var(--mono);font-size:12px;color:var(--muted);background:rgba(94,168,232,.08);border:1px solid rgba(94,168,232,.18);border-radius:6px;padding:2px 8px;display:inline-block;margin:2px 4px 2px 0}
+
+/* 表格 */
+.tbl-wrap{overflow-x:auto;margin:16px 0}
+table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;margin:0}
+table.tbl th{background:var(--panel2);color:var(--accent);text-align:left;font-weight:600;padding:10px 12px;border:1px solid var(--line);font-size:12.5px;letter-spacing:.5px}
+table.tbl td{padding:9px 12px;border:1px solid var(--line);color:var(--muted);vertical-align:top}
+table.tbl td b{color:var(--text);font-weight:600}
+table.tbl tr:hover td{background:rgba(94,168,232,.04)}
+table.tbl td .mono,table.tbl th .mono{font-family:var(--mono);font-size:12px}
+table.tbl .ok{color:var(--ok)}table.tbl .no{color:var(--no)}table.tbl .warn{color:var(--warn)}
+
+/* 代码块 */
+pre.code{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.7;margin:14px 0;color:#C9D6E3}
+pre.code .c{color:#5A6B80}pre.code .kw{color:#8A7CF5}pre.code .fn{color:#5EA8E8}pre.code .st{color:#B8E986}pre.code .num{color:#F5B84C}
+pre.code .hl{background:rgba(245,184,76,.12);display:inline-block;width:100%}
+
+/* 提示条 */
+.note{display:flex;gap:10px;padding:12px 16px;border-radius:10px;background:var(--accent-dim);border:1px solid rgba(94,168,232,.28);font-size:13.5px;color:var(--muted);margin:16px 0}
+.note b{color:var(--accent)}
+.note.warn{background:rgba(245,184,76,.08);border-color:rgba(245,184,76,.3)}
+.note.warn b{color:var(--warn)}
+.note.red{background:rgba(242,109,109,.07);border-color:rgba(242,109,109,.28)}
+.note.red b{color:var(--no)}
+
+/* 卡片 */
+.comp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin:20px 0}
+.comp{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+.comp .tag{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:1.5px;color:var(--bg);background:var(--accent);border-radius:4px;padding:1px 8px;font-weight:600}
+.comp h4{font-size:15px;font-weight:700;margin:10px 0 8px}
+.comp p{color:var(--muted);font-size:13px}
+.comp .kv{font-family:var(--mono);font-size:12px;background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-top:10px;line-height:1.9;color:#C9D6E3}
+.comp .kv .hl{color:var(--accent)}.comp .kv .hl2{color:var(--warn)}
+
+/* 图容器 */
+.fig{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin:18px 0;overflow-x:auto}
+.fig svg{display:block;width:100%;min-width:640px;height:auto}
+.fig .cap{font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-top:10px}
+.fig .cap b{color:var(--muted)}
+.legend{display:flex;gap:18px;flex-wrap:wrap;margin:10px 0 4px;font-size:12.5px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend code{font-family:var(--mono);font-size:11.5px;background:none;border:none;padding:0;color:var(--muted)}
+
+/* ECharts 容器 */
+.chart{width:100%;height:300px;min-width:0;box-sizing:border-box}
+.chart.tall{height:340px}
+.chart-fallback{display:flex;flex-direction:column;gap:8px;height:100%;justify-content:center}
+.chart-fallback .fb-row{display:flex;justify-content:space-between;gap:12px;padding:10px 14px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;font-size:13px;color:var(--muted)}
+.chart-fallback .fb-row b{color:var(--text);font-family:var(--mono);font-size:13px}
+
+/* 步骤交互 */
+.ctrl{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 6px}
+.ctrl button{
+  min-height:44px;padding:8px 16px;border-radius:999px;border:1px solid var(--line2);
+  background:var(--panel2);color:var(--muted);font-family:'Noto Sans SC',sans-serif;font-size:13px;
+  cursor:pointer;transition:all .18s;
+}
+.ctrl button:hover{border-color:var(--accent);color:var(--accent)}
+.ctrl button.on{background:var(--accent);border-color:var(--accent);color:var(--bg);font-weight:600}
+.ctrl button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* 流程步骤 */
+.flow{display:flex;align-items:stretch;gap:8px;flex-wrap:wrap;margin:20px 0}
+.flow .step{flex:1 1 150px;min-width:0;background:var(--panel2);border:1px solid var(--line2);border-radius:10px;padding:10px 12px;font-size:12.5px;color:var(--muted);text-align:center}
+.flow .step b{display:block;color:var(--text);font-size:13px;margin-bottom:2px}
+.flow .arrow{color:var(--accent);font-family:var(--mono);font-size:16px;align-self:center;flex:0 0 auto}
+
+/* 列表 */
+ul.list{list-style:none;margin:8px 0 14px}
+ul.list li{position:relative;padding:5px 0 5px 22px;color:var(--muted);font-size:14px}
+ul.list li::before{content:"";position:absolute;left:4px;top:13px;width:8px;height:8px;border-radius:2px;background:var(--accent);opacity:.75}
+ul.list li b{color:var(--text)}
+
+/* 页脚 */
+footer{border-top:1px solid var(--line);padding:30px 0 44px;color:var(--faint);font-size:12.5px}
+footer .wrap{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
+footer a{color:var(--muted);text-decoration:none}
+footer a:hover{color:var(--accent)}
+
+/* ===== 响应式 ===== */
+@media (max-width:860px){
+  .hero{padding:44px 0 38px}
+  .hero h1{font-size:31px}
+  .hero .sub{font-size:14.5px}
+  section.block{padding:42px 0}
+  .sec-head h2{font-size:21px}
+  .fig svg{min-width:0}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *{transition:none!important}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 顶部导航 ===== -->
+<nav class="top">
+  <div class="bar">
+    <div class="brand">MySQL <em>索引专题</em></div>
+    <a class="chip" href="#why">01 本质</a>
+    <a class="chip" href="#btree">02 B+树</a>
+    <a class="chip" href="#storage">03 存储结构</a>
+    <a class="chip" href="#kinds">04 分类</a>
+    <a class="chip" href="#exec">05 执行优化</a>
+    <a class="chip" href="#cost">06 代价维护</a>
+    <a class="chip" href="#design">07 设计建议</a>
+    <a class="chip" href="#source">08 源码地图</a>
+    <a class="chip min" href="OVERVIEW.html">总览 →</a>
+    <a class="chip min" href="MVCC.html">MVCC →</a>
+  </div>
+</nav>
+
+<!-- ===== Hero ===== -->
+<header class="hero" id="top">
+  <div class="wrap">
+    <div class="kicker">MySQL Server 8.4 LTS · Index Deep Dive</div>
+    <h1>MySQL 索引：<span class="grad">B+树、InnoDB 存储与查询优化</span></h1>
+    <p class="sub">索引的本质，是用<b>有序的数据结构</b>换取<b>磁盘 IO 的减少</b>。理解 MySQL 的索引，就是理解三条主线：<b>为什么是 B+树</b>（数据结构）、<b>聚簇与二级索引如何落盘</b>（InnoDB 物理存储）、<b>优化器如何利用索引</b>（SQL 执行）。本页从这三条主线展开，并把每个知识点对应到 8.4 源码中的具体文件与符号。</p>
+    <div class="pillars">
+      <div class="pillar">
+        <div class="n">数据结构</div>
+        <div class="t">B+树 · 3~4 层即可定位亿级数据</div>
+        <div class="d">有序性 + 高扇出，一次查找仅数次磁盘 IO</div>
+      </div>
+      <div class="pillar">
+        <div class="n">物理存储</div>
+        <div class="t">聚簇 + 二级索引 · 回表</div>
+        <div class="d">二级索引叶子存主键，覆盖索引避免回表</div>
+      </div>
+      <div class="pillar">
+        <div class="n">查询执行</div>
+        <div class="t">range / ref / ICP / MRR</div>
+        <div class="d">优化器在代价模型上选择访问路径</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ===== 01 索引的本质 ===== -->
+<section class="block" id="why">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="no">01</div>
+      <h2>索引的本质：用有序换少读</h2>
+      <div class="en">Why Index</div>
+    </div>
+    <p class="sec-lead">一句话版本：索引像书的目录——<b>先确定记录的大致位置，再精确定位</b>，而不是逐页翻书。数据库的"翻书"成本不是 CPU，而是<b>磁盘 IO</b>：一次随机读一个 16KB 数据页，远比在内存里比较几千行贵。</p>
+
+    <h3 class="subt">直观理解</h3>
+    <p class="para">没有索引时，InnoDB 只能做<b>全表扫描</b>：把每一页读进内存，逐行比较 WHERE 条件。100 万行的表就要读约 1.5 万页（按每页 65 行估算），且行在页内无序，无法提前跳读。有了索引后，先沿 B+树从根走到叶，只读 <b>3~4 页</b>就定位到目标行所在的数据页，再读这一页即可——IO 从"万级"降到"个位数"。</p>
+    <div class="note"><b>关键视角：</b>索引优化的核心指标只有一个——<b>访问路径上要读多少个数据页</b>。B+树把"找到目标行"从 O(n) 页扫描变成 O(log n) 次树下降，这就是全部收益的来源。</div>
+
+    <h3 class="subt">B+树容量：为什么 3 层就够</h3>
+    <p class="para">B+树每下降一层，可覆盖的记录数乘上"扇出"（每个内节点页能装的子节点指针数）。按 8 字节主键 + 6 字节页号的内节点记录估算，一个 16KB 页约可容纳 1000 个键；叶子页按每行约 150B 估算约 100 行/页：</p>
+    <div class="fig">
+      <div class="chart tall" id="capChart">
+        <div class="chart-fallback">
+          <div class="fb-row"><span>树高 1 层（根 + 叶）</span><b>约 100 行</b></div>
+          <div class="fb-row"><span>树高 2 层</span><b>约 10 万行</b></div>
+          <div class="fb-row"><span>树高 3 层</span><b>约 1 亿行</b></div>
+          <div class="fb-row"><span>树高 4 层</span><b>约 1000 亿行</b></div>
+        </div>
+      </div>
+      <div class="cap">示意图口径：扇出 1000（内节点每页约 1000 个键）、叶子页约 100 行/页；数值随主键宽度与行宽变化，仅用于说明"高度增长极其缓慢"。<b>结论：</b>百万行 ≈ 3 层，十亿行 ≈ 4 层——每多一层，一次查找只多 1 次磁盘 IO。</div>
+    </div>
+
+    <h3 class="subt">复杂度对比</h3>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th style="width:18%">访问方式</th><th style="width:16%">IO 数量级</th><th>说明</th><th style="width:20%">适用</th></tr>
+        <tr><td><b>全表扫描</b></td><td class="no">O(行数 / 每页行数)</td><td>读全部数据页，逐行判断；页内行无序，无法跳过</td><td>小表、无法使用索引的查询</td></tr>
+        <tr><td><b>B+树查找</b></td><td class="ok">O(树高) ≈ 3~4</td><td>根→内节点→叶子，每层读一页；页内二分定位</td><td>点查、范围查的主路径</td></tr>
+        <tr><td><b>哈希（AHI）</b></td><td class="ok">O(1) 内存</td><td>InnoDB 自适应哈希：等值查的加速缓存，不支持范围</td><td>高频等值点查的自动加速</td></tr>
+      </table>
+    </div>
+    <div class="note warn"><b>注意：</b>SQL 层的"索引查找"包含多条子 IO：B+树下降（3~4 页）+ 读目标数据页（1 页）；若是二级索引命中但查询列不在索引内，还需<b>回表</b>再读聚簇索引（+1 次随机 IO，见 03 章）。</div>
+  </div>
+</section>
+
+<!-- ===== 02 B+树原理 ===== -->
+<section class="block" id="btree">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="no">02</div>
+      <h2>B+树：索引的物理形态</h2>
+      <div class="en">B+Tree</div>
+    </div>
+    <p class="sec-lead">InnoDB 的索引全部是 B+树（聚簇索引也是）。B+树把"有序数组"和"树形跳读"结合：<b>内节点只存键与指针（不存数据）</b>，因此扇出极高；<b>叶子节点存全部数据且按序串联成链表</b>，因此范围扫描天然连续。这是一套为磁盘量身定做的结构。</p>
+
+    <h3 class="subt">一次索引查找，3 次 IO</h3>
+    <p class="para">下面演示查找键值 <code class="k">42</code> 的完整路径（MySQL 8.4 中对应 <span class="srcpath">storage/innobase/btr/btr0cur.cc</span> 的 <code class="k">btr_cur_search_to_nth_level()</code>）：根页读入后二分比较 <b>30 &lt; 42 &lt; 70</b>，走中间指针；内节点页读入后 <b>40 &lt; 42 &lt; 55</b>，走对应指针；叶子页读入后页内二分定位到行。点击按钮逐步查看。</p>
+    <div class="ctrl" id="btreeCtrl">
+      <button data-step="0" class="on">结构预览</button>
+      <button data-step="1">① 根页：30 &lt; 42 &lt; 70</button>
+      <button data-step="2">② 内节点：40 &lt; 42 &lt; 55</button>
+      <button data-step="3">③ 叶子页命中 · 返回主键</button>
+    </div>
+    <div class="fig">
+      <svg viewBox="0 0 920 430" role="img" aria-label="三层 B+树查找键值 42 的路径示意">
+        <!-- 连接线（静默） -->
+        <g class="edge" stroke="#3A4658" stroke-width="1.5">
+          <line x1="450" y1="62" x2="240" y2="112"/>
+          <line x1="450" y1="62" x2="450" y2="112"/>
+          <line x1="450" y1="62" x2="670" y2="112"/>
+          <line x1="240" y1="152" x2="120" y2="202"/>
+          <line x1="240" y1="152" x2="300" y2="202"/>
+          <line x1="450" y1="152" x2="380" y2="202"/>
+          <line x1="450" y1="152" x2="450" y2="202"/>
+          <line x1="450" y1="152" x2="520" y2="202"/>
+          <line x1="670" y1="152" x2="600" y2="202"/>
+          <line x1="670" y1="152" x2="800" y2="202"/>
+        </g>
+        <!-- 根页 -->
+        <g class="node lvl1" transform="translate(370,18)">
+          <rect width="160" height="46" rx="8" fill="#1A2330" stroke="#3A4658"/>
+          <text x="80" y="18" text-anchor="middle" fill="#8B9BB4" font-size="11" font-family="JetBrains Mono,monospace">根页 · 1 次 IO</text>
+          <g font-family="JetBrains Mono,monospace" font-size="13" text-anchor="middle" fill="#E6EDF3">
+            <text x="40" y="38">30</text>
+            <line x1="52" y1="26" x2="52" y2="40" stroke="#3A4658"/>
+            <text x="80" y="38">70</text>
+            <line x1="93" y1="26" x2="93" y2="40" stroke="#3A4658"/>
+            <text x="128" y="38">∞</text>
+          </g>
+        </g>
+        <!-- 内节点层 -->
+        <g class="node lvl2" transform="translate(160,110)">
+          <rect width="160" height="42" rx="8" fill="#1A2330" stroke="#3A4658"/>
+          <text x="80" y="16" text-anchor="middle" fill="#8B9BB4" font-size="10" font-family="JetBrains Mono,monospace">内节点 &lt;30</text>
+          <g font-family="JetBrains Mono,monospace" font-size="12" text-anchor="middle" fill="#E6EDF3">
+            <text x="32" y="34">10</text><text x="80" y="34">20</text><text x="128" y="34">∞</text>
+          </g>
+        </g>
+        <g class="node lvl2" transform="translate(370,110)">
+          <rect width="160" height="42" rx="8" fill="#1A2330" stroke="#3A4658"/>
+          <text x="80" y="16" text-anchor="middle" fill="#8B9BB4" font-size="10" font-family="JetBrains Mono,monospace">内节点 30~70</text>
+          <g font-family="JetBrains Mono,monospace" font-size="12" text-anchor="middle" fill="#E6EDF3">
+            <text x="32" y="34">40</text><text x="80" y="34">55</text><text x="128" y="34">60</text>
+          </g>
+        </g>
+        <g class="node lvl2" transform="translate(590,110)">
+          <rect width="160" height="42" rx="8" fill="#1A2330" stroke="#3A4658"/>
+          <text x="80" y="16" text-anchor="middle" fill="#8B9BB4" font-size="10" font-family="JetBrains Mono,monospace">内节点 &gt;70</text>
+          <g font-family="JetBrains Mono,monospace" font-size="12" text-anchor="middle" fill="#E6EDF3">
+            <text x="32" y="34">85</text><text x="80" y="34">95</text><text x="128" y="34">∞</text>
+          </g>
+        </g>
+        <!-- 叶子页层 -->
+        <g class="node lvl3" transform="translate(20,200)">
+          <rect width="150" height="52" rx="8" fill="#151C26" stroke="#3A4658"/>
+          <text x="75" y="17" text-anchor="middle" fill="#8B9BB4" font-size="10" font-family="JetBrains Mono,monospace">叶页 1 · 键 1..9</text>
+          <text x="75" y="38" text-anchor="middle" fill="#5A6B80" font-size="11" font-family="JetBrains Mono,monospace">(5, 主键)</text>
+        </g>
+        <g class="node lvl3" transform="translate(195,200)">
+          <rect width="150" height="52" rx="8" fill="#151C26" stroke="#3A4658"/>
+          <text x="75" y="17" text-anchor="middle" fill="#8B9BB4" font-size="10" font-family="JetBrains Mono,monospace">叶页 2 · 键 10..24</text>
+          <text x="75" y="38" text-anchor="middle" fill="#5A6B80" font-size="11" font-family="JetBrains Mono,monospace">(18, 主键)</text>
+        </g>
+        <g class="node lvl3" transform="translate(370,200)">
+          <rect width="150" height="52" rx="8" fill="#151C26" stroke="#3A4658"/>
+          <text x="75" y="17" text-anchor="middle" fill="#8B9BB4" font-size="10" font-family="JetBrains Mono,monospace">叶页 3 · 键 40..52</text>
+          <text x="75" y="38" text-anchor="middle" fill="#5A6B80" font-size="11" font-family="JetBrains Mono,monospace">(42, 主键)</text>
+        </g>
+        <g class="node lvl3" transform="translate(545,200)">
+          <rect width="150" height="52" rx="8" fill="#151C26" stroke="#3A4658"/>
+          <text x="75" y="17" text-anchor="middle" fill="#8B9BB4" font-size="10" font-family="JetBrains Mono,monospace">叶页 4 · 键 55..66</text>
+          <text x="75" y="38" text-anchor="middle" fill="#5A6B80" font-size="11" font-family="JetBrains Mono,monospace">(60, 主键)</text>
+        </g>
+        <g class="node lvl3" transform="translate(720,200)">
+          <rect width="150" height="52" rx="8" fill="#151C26" stroke="#3A4658"/>
+          <text x="75" y="17" text-anchor="middle" fill="#8B9BB4" font-size="10" font-family="JetBrains Mono,monospace">叶页 5 · 键 85..</text>
+          <text x="75" y="38" text-anchor="middle" fill="#5A6B80" font-size="11" font-family="JetBrains Mono,monospace">(90, 主键)</text>
+        </g>
+        <!-- 叶子链表箭头 -->
+        <g fill="none" stroke="#5EA8E8" stroke-width="1.5" opacity=".5">
+          <line x1="170" y1="226" x2="192" y2="226" marker-end="url(#arw)"/>
+          <line x1="345" y1="226" x2="367" y2="226" marker-end="url(#arw)"/>
+          <line x1="520" y1="226" x2="542" y2="226" marker-end="url(#arw)"/>
+          <line x1="695" y1="226" x2="717" y2="226" marker-end="url(#arw)"/>
+        </g>
+        <defs>
+          <marker id="arw" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0,0 L8,4 L0,8 Z" fill="#5EA8E8" opacity=".5"/>
+          </marker>
+        </defs>
+        <!-- 路径高亮层 -->
+        <g class="pathline" opacity="0">
+          <line x1="450" y1="64" x2="450" y2="110" stroke="#5EA8E8" stroke-width="2.5" stroke-dasharray="6 4"/>
+          <line x1="450" y1="152" x2="450" y2="198" stroke="#5EA8E8" stroke-width="2.5" stroke-dasharray="6 4"/>
+        </g>
+        <!-- 命中标记 -->
+        <g class="hitmark" opacity="0" transform="translate(476,300)">
+          <circle r="12" fill="#5BD087" opacity=".18"/>
+          <path d="M-5,0 L-1,4 L5,-4" stroke="#5BD087" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </g>
+        <!-- 图例 -->
+        <g transform="translate(20,340)">
+          <rect width="220" height="74" rx="8" fill="none" stroke="#3A4658"/>
+          <text x="12" y="20" fill="#93A3B8" font-size="11">图例</text>
+          <rect x="12" y="32" width="10" height="10" rx="2" fill="#5EA8E8"/>
+          <text x="28" y="42" fill="#93A3B8" font-size="11">路径高亮（随步骤出现）</text>
+          <rect x="12" y="52" width="10" height="10" rx="2" fill="#5BD087"/>
+          <text x="28" y="62" fill="#93A3B8" font-size="11">命中行（第 3 步）</text>
+        </g>
+      </svg>
+      <div class="cap">B+树查找键值 42：<b>每层一次 IO，页内二分比较键区间</b>。内节点不存数据、只存"键 + 子页指针"，是扇出高的根本原因；叶子页之间通过链表串联，支撑范围扫描。<b>源码入口：</b><code class="mono">btr_cur_search_to_nth_level()</code>，游标类型 <code class="mono">btr_cur_t</code>（<span class="srcpath">storage/innobase/include/btr0pcur.h</span>）。</div>
+    </div>
+
+    <h3 class="subt">为什么偏偏是 B+树</h3>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th style="width:15%">结构</th><th style="width:12%">有序遍历</th><th style="width:12%">范围查询</th><th style="width:16%">磁盘扇出</th><th style="width:14%">写放大</th><th>结论</th></tr>
+        <tr><td><b>哈希表</b></td><td class="no">否</td><td class="no">否</td><td>—</td><td class="ok">低</td><td>等值 O(1) 极快，但无法排序/范围；InnoDB 仅以 AHI 形式做内存加速缓存</td></tr>
+        <tr><td><b>二叉搜索树</b></td><td class="ok">是</td><td class="ok">是</td><td class="no">2（每节点 2 指针）</td><td class="no">高（频繁旋转）</td><td>百万行树高 ~20，每层一页 IO，磁盘上不可接受；仅内存场景可用</td></tr>
+        <tr><td><b>B 树</b></td><td class="ok">是</td><td class="warn">需要中序遍历</td><td class="ok">高（数百~千）</td><td class="warn">中</td><td>数据分散在所有节点，范围扫描要跨层回溯，页利用率不稳定</td></tr>
+        <tr><td><b>B+树</b></td><td class="ok">是</td><td class="ok">是（叶子链表）</td><td class="ok">高（数百~千）</td><td class="warn">中（页分裂）</td><td><b>InnoDB 的选择</b>：内节点纯键指针、叶子串链，范围/排序/聚簇天然一体</td></tr>
+      </table>
+    </div>
+    <div class="note"><b>一句话：</b>B+树牺牲了内节点的"数据存储"，换来了更高的扇出（更矮的树）和叶子节点的顺序链表（高效范围扫描）——这两点恰好是磁盘数据库最贵的两件事：<b>IO 次数</b>和<b>顺序性</b>。</div>
+
+    <h3 class="subt">数据页内部：页目录与二分</h3>
+    <p class="para">B+树的最底层是<b>数据页</b>。一个 16KB 页内，记录按主键（或索引键）有序排列在 <code class="k">User Records</code> 区；页尾的 <code class="k">Page Directory</code>（页目录）为每 4~8 条记录建立<b>槽</b>，指向该组第一条记录的偏移。查找页内记录时先对槽做<b>二分</b>，再在槽内做线性扫描——这就是"页内查找"的源码实现（<span class="srcpath">storage/innobase/include/page0page.h</span> 的 <code class="k">page_cur_search_with_match()</code>）。</p>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th style="width:22%">页内区域</th><th style="width:20%">源码符号</th><th>作用</th></tr>
+        <tr><td><b>页头</b></td><td class="mono">FIL_PAGE_DATA / page_header</td><td>页类型、上一页/下一页指针、页内记录数等元信息</td></tr>
+        <tr><td><b>User Records</b></td><td class="mono">PAGE_DATA</td><td>实际记录，按键序排列，通过记录头的 next/prev 偏移形成单向链表</td></tr>
+        <tr><td><b>Page Directory</b></td><td class="mono">PAGE_DIR_SLOT / PAGE_N_DIR_SLOTS</td><td>槽数组，槽指向每组首记录；查找时对槽二分、槽内线性扫</td></tr>
+        <tr><td><b>页尾</b></td><td class="mono">FIL_PAGE_END_LSN</td><td>页级校验与恢复（checksum、LSN），崩溃恢复时校验页完整性</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 03 InnoDB 存储结构 ===== -->
+<section class="block" id="storage">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="no">03</div>
+      <h2>聚簇索引与二级索引：InnoDB 的存储骨架</h2>
+      <div class="en">Clustered & Secondary</div>
+    </div>
+    <p class="sec-lead">InnoDB 的表<b>本身就是一棵以主键为键的 B+树</b>（聚簇索引），叶子节点存放完整行。其余每个索引都是<b>独立的一棵 B+树</b>（二级索引），叶子节点只存"索引键 + 主键"。两者通过主键桥接——这也是"回表"的由来。</p>
+
+    <h3 class="subt">两棵树，两种叶子</h3>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th style="width:18%">维度</th><th>聚簇索引（主键树）</th><th>二级索引（辅助树）</th></tr>
+        <tr><td><b>叶子内容</b></td><td>完整行数据（含隐藏列：row_id、trx_id、roll_ptr）</td><td>索引键列 + 主键列</td></tr>
+        <tr><td><b>每表数量</b></td><td>至多 1 棵（主键 / 唯一键 / 隐式 row_id）</td><td>可多棵，每棵独立 B+树</td></tr>
+        <tr><td><b>查找语义</b></td><td>按主键直接拿整行，无需二次跳转</td><td>命中后拿到主键，还需回聚簇树取行</td></tr>
+        <tr><td><b>数据组织</b></td><td>行按主键物理有序，页内/页间有序</td><td>行按索引键有序（键序，非物理序）</td></tr>
+        <tr><td><b>源码定义</b></td><td colspan="2" class="mono">dict_index_t（<span class="srcpath">storage/innobase/include/dict0dict.h</span>）；flags 标记 <span class="mono">DICT_CLUSTERED</span> / <span class="mono">DICT_UNIQUE</span> 等</td></tr>
+      </table>
+    </div>
+
+    <h3 class="subt">回表：一次额外的随机 IO</h3>
+    <p class="para">用二级索引 <code class="k">idx_name(name)</code> 查 <code class="k">WHERE name='alice'</code>：先在二级树里定位到 <code class="k">(alice, 主键=7)</code>，再拿主键 7 回聚簇树取整行。两次 B+树下降 = 约 7~8 次 IO（各 3~4 层）。<b>覆盖索引</b>（查询列全部在索引中）可省掉第二步。</p>
+    <div class="fig">
+      <svg viewBox="0 0 920 300" role="img" aria-label="二级索引查找并回表流程">
+        <!-- 左：二级索引树（简化） -->
+        <g stroke="#3A4658" stroke-width="1.5">
+          <line x1="200" y1="50" x2="120" y2="100"/>
+          <line x1="200" y1="50" x2="280" y2="100"/>
+        </g>
+        <g transform="translate(140,18)">
+          <rect width="120" height="34" rx="7" fill="#1A2330" stroke="#3A4658"/>
+          <text x="60" y="22" text-anchor="middle" fill="#8B9BB4" font-size="11" font-family="JetBrains Mono,monospace">二级根</text>
+        </g>
+        <g transform="translate(60,98)">
+          <rect width="120" height="34" rx="7" fill="#1A2330" stroke="#3A4658"/>
+          <text x="60" y="22" text-anchor="middle" fill="#8B9BB4" font-size="11" font-family="JetBrains Mono,monospace">&lt;alice</text>
+        </g>
+        <g transform="translate(220,98)">
+          <rect width="130" height="34" rx="7" fill="#1A2330" stroke="#3A4658"/>
+          <text x="65" y="22" text-anchor="middle" fill="#8B9BB4" font-size="11" font-family="JetBrains Mono,monospace">alice..</text>
+        </g>
+        <!-- 二级索引叶子 -->
+        <g transform="translate(200,160)">
+          <rect width="170" height="64" rx="8" fill="#151C26" stroke="#5EA8E8" stroke-width="2"/>
+          <text x="85" y="20" text-anchor="middle" fill="#8B9BB4" font-size="10" font-family="JetBrains Mono,monospace">二级索引叶子</text>
+          <text x="85" y="40" text-anchor="middle" fill="#E6EDF3" font-size="12" font-family="JetBrains Mono,monospace">name='alice'</text>
+          <text x="85" y="57" text-anchor="middle" fill="#5EA8E8" font-size="12" font-family="JetBrains Mono,monospace">主键 = 7</text>
+        </g>
+        <!-- 回表箭头 -->
+        <g stroke="#F5B84C" stroke-width="2" fill="none" stroke-dasharray="7 4">
+          <line x1="370" y1="192" x2="560" y2="150"/>
+        </g>
+        <g transform="translate(420,140)">
+          <rect width="150" height="40" rx="8" fill="rgba(245,184,76,.10)" stroke="#F5B84C"/>
+          <text x="75" y="25" text-anchor="middle" fill="#F5B84C" font-size="12">回表 · 按主键 7 再查</text>
+        </g>
+        <!-- 聚簇树 -->
+        <g transform="translate(610,18)">
+          <rect width="140" height="34" rx="7" fill="#1A2330" stroke="#3A4658"/>
+          <text x="70" y="22" text-anchor="middle" fill="#8B9BB4" font-size="11" font-family="JetBrains Mono,monospace">聚簇根（主键）</text>
+        </g>
+        <g stroke="#3A4658" stroke-width="1.5">
+          <line x1="680" y1="52" x2="620" y2="100"/>
+          <line x1="680" y1="52" x2="740" y2="100"/>
+        </g>
+        <g transform="translate(560,98)">
+          <rect width="120" height="34" rx="7" fill="#1A2330" stroke="#3A4658"/>
+          <text x="60" y="22" text-anchor="middle" fill="#8B9BB4" font-size="11" font-family="JetBrains Mono,monospace">&lt;7</text>
+        </g>
+        <g transform="translate(700,98)">
+          <rect width="110" height="34" rx="7" fill="#1A2330" stroke="#3A4658"/>
+          <text x="55" y="22" text-anchor="middle" fill="#8B9BB4" font-size="11" font-family="JetBrains Mono,monospace">7..</text>
+        </g>
+        <!-- 聚簇叶子 = 整行 -->
+        <g transform="translate(650,160)">
+          <rect width="240" height="86" rx="8" fill="#151C26" stroke="#5BD087" stroke-width="2"/>
+          <text x="120" y="20" text-anchor="middle" fill="#8B9BB4" font-size="10" font-family="JetBrains Mono,monospace">聚簇叶子 · 完整行</text>
+          <text x="120" y="42" text-anchor="middle" fill="#E6EDF3" font-size="12" font-family="JetBrains Mono,monospace">id=7, name='alice', age=24</text>
+          <text x="120" y="61" text-anchor="middle" fill="#5A6B80" font-size="11" font-family="JetBrains Mono,monospace">trx_id=.., roll_ptr=..</text>
+          <text x="120" y="79" text-anchor="middle" fill="#5BD087" font-size="11" font-family="JetBrains Mono,monospace">命中 · 返回整行</text>
+        </g>
+        <!-- 覆盖索引标注 -->
+        <g transform="translate(60,250)">
+          <rect width="430" height="40" rx="8" fill="rgba(91,208,135,.08)" stroke="rgba(91,208,135,.4)"/>
+          <text x="215" y="24" text-anchor="middle" fill="#5BD087" font-size="12">覆盖索引：查询列 ⊆ 索引列 → 不回表（省 1 次树下降 + 随机 IO）</text>
+        </g>
+        <g transform="translate(620,252)">
+          <rect width="280" height="38" rx="8" fill="rgba(242,109,109,.07)" stroke="rgba(242,109,109,.4)"/>
+          <text x="140" y="24" text-anchor="middle" fill="#F26D6D" font-size="12">非覆盖：+1 次聚簇树查找（随机 IO）</text>
+        </g>
+      </svg>
+      <div class="cap">二级索引命中后回表：<b>二级叶子给主键，聚簇叶子给整行</b>。优化器代价模型（<span class="srcpath">sql/opt_costmodel.cc</span>）会把回表代价计入，行数大时宁可全表扫描。<b>源码：</b>InnoDB 侧 <span class="srcpath">storage/innobase/row/row0sel.cc</span> 的 <code class="mono">row_search_mvcc()</code> 负责按索引定位并回表；SQL 层接口在 <span class="srcpath">storage/innobase/handler/ha_innodb.cc</span> 的 <code class="mono">index_read()</code> / <code class="mono">read_range_first()</code>。</div>
+    </div>
+
+    <h3 class="subt">联合索引：键的顺序就是一切</h3>
+    <p class="para">联合索引 <code class="k">(a, b, c)</code> 的 B+树先按 <b>a</b> 排序，a 相同再按 <b>b</b>，再按 <b>c</b>。因此它能直接服务：<code class="k">a</code> 等值/范围、<code class="k">a + b</code>、<code class="k">a + b + c</code> 的查询——这就是<b>最左前缀</b>。但 <code class="k">b</code> 或 <code class="k">c</code> 单独作为条件时无法利用该索引（除非 8.0 的<b>跳跃扫描</b>优化，见下）。</p>
+    <div class="comp-grid">
+      <div class="comp">
+        <div class="tag">KEY 语义</div>
+        <h4>记录比较规则</h4>
+        <p>索引记录按"列序"比较：先比 a，相等才比 b，以此类推。NULL 处理、字符串排序规则（collation）都会影响顺序。</p>
+        <div class="kv">cmp_data(...) 在 <span class="srcpath">storage/innobase/rem/rem0cmp.cc</span><br>索引定义 <span class="hl">dict_index_t::fields[]</span><br>每个字段含 <span class="hl">col</span> / <span class="hl">prefix_len</span> / <span class="hl">descend</span></div>
+      </div>
+      <div class="comp">
+        <div class="tag">8.0</div>
+        <h4>跳跃扫描（Skip Scan）</h4>
+        <p>MySQL 8.0.13+：当最左列是等值条件缺失、但后续列有等值条件时，优化器可把 <code class="k">(a,b)</code> 索引按 a 的不同值"跳跃"扫描。</p>
+        <div class="kv">优化器入口 <span class="hl">test_skip_scan()</span><br>文件 <span class="srcpath">sql/opt_range.cc</span><br>受 <span class="hl2">skip_scan</span> 优化开关控制</div>
+      </div>
+    </div>
+
+    <h3 class="subt">自适应哈希索引（AHI）</h3>
+    <p class="para">AHI 不是独立索引，而是 InnoDB 在内存里为<b>高频等值访问的 B+树页</b>建立的哈希缓存（键 → 页内记录指针）。它透明加速 <code class="k">=</code> 查询，无法主动创建、不参与优化器选路。哈希表使用分配按 <code class="k">innodb_adaptive_hash_index</code>（默认 ON）控制，8.0 中每个索引分区哈希表独立管理（<span class="srcpath">storage/innobase/include/ha0ha.h</span>，<code class="mono">hash_search()</code>）。</p>
+  </div>
+</section>
+
+<!-- ===== 04 索引分类全景 ===== -->
+<section class="block" id="kinds">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="no">04</div>
+      <h2>索引分类全景</h2>
+      <div class="en">Index Taxonomy</div>
+    </div>
+    <p class="sec-lead">从"数据结构"到"语义约束"，MySQL 的索引有多个正交的维度。下面按<b>索引类型</b>给出全景，并标注每种类型在源码数据字典 <code class="k">dict_index_t</code> 中的标志位。</p>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th style="width:13%">类型</th><th style="width:30%">定义与特点</th><th style="width:22%">典型场景</th><th>源码标志 / 位置</th></tr>
+        <tr><td><b>主键索引</b><br><span class="mono">PRIMARY KEY</span></td><td>聚簇索引的唯一存在；叶子存整行；键必须唯一、非空；无主键时用首个 NOT NULL 唯一键，再退化隐藏 <code class="mono">row_id</code></td><td>每张 InnoDB 表必有</td><td class="mono">DICT_CLUSTERED；dict_table_get_first_index()</td></tr>
+        <tr><td><b>唯一索引</b><br><span class="mono">UNIQUE</span></td><td>二级索引 + 唯一约束；允许一个 NULL（非唯一列可多 NULL）；重复键在插入时由 <code class="mono">dup key</code> 错误拒绝</td><td>业务唯一性（邮箱、订单号）</td><td class="mono">DICT_UNIQUE；row_ins_dupl_error_with_rec()</td></tr>
+        <tr><td><b>普通索引</b><br><span class="mono">INDEX</span></td><td>仅加速查询，不约束唯一性；重复键自由</td><td>查询加速的默认选择</td><td class="mono">dict_index_t 基础标志</td></tr>
+        <tr><td><b>联合索引</b></td><td>多列合成一棵 B+树；键序 = 列序；最左前缀生效；<b>冗余索引</b>（如 (a,b) 与 (a)）应避免</td><td>多条件查询、排序、覆盖</td><td class="mono">n_fields &gt; 1；8.0 支持降序列</td></tr>
+        <tr><td><b>覆盖索引</b></td><td>不是独立类型，而是"查询所需列 ⊆ 索引列"的状态；命中后不回表</td><td>高频点查 + 少量列</td><td class="mono">索引扫描时 check_covering()（InnoDB）</td></tr>
+        <tr><td><b>全文索引</b><br><span class="mono">FULLTEXT</span></td><td>倒排索引（词 → 文档），支持 MATCH...AGAINST；8.0 由 InnoDB 原生实现（5.6 之前仅 MyISAM）</td><td>LIKE '%x%' 无法索引时的全文检索</td><td class="mono">DICT_FTS；fts0fts.h；FTS_DOC_ID</td></tr>
+        <tr><td><b>空间索引</b><br><span class="mono">SPATIAL</span></td><td>R 树（R-tree），支持几何类型与空间函数（MBR 关系）</td><td>GIS、坐标范围查询</td><td class="mono">DICT_SPATIAL；rtr0rtr.h（R-tree）</td></tr>
+        <tr><td><b>降序索引</b><br><span class="mono">DESC</span>（8.0）</td><td>列按降序存储；解决"ORDER BY a ASC, b DESC"无法用正向索引扫描的问题；8.0 前 DESC 仅元数据，实际仍升序（走 filesort）</td><td>混合排序查询</td><td class="mono">dict_field_t::descend（8.0 起参与真实排序）</td></tr>
+        <tr><td><b>不可见索引</b><br><span class="mono">INVISIBLE</span>（8.0）</td><td>索引保留、维护照常，但优化器不可见（不可用）；用于灰度下线索引、观测影响</td><td>索引治理、评估删除风险</td><td class="mono">dict_index_t::is_visible；INDEX_DIRECTORY 未启用</td></tr>
+        <tr><td><b>函数索引</b><br><span class="mono">(expr)</span>（8.0.13）</td><td>对表达式建索引，如 <code class="mono">INDEX ((lower(email)))</code>；8.0.13 起函数索引 = 隐藏列 + 生成列实现</td><td>对列做函数处理后的查询</td><td class="mono">虚拟生成列承载；dict/dict0dict.cc</td></tr>
+        <tr><td><b>前缀索引</b><br><span class="mono">idx(col(10))</span></td><td>只取列的前 N 字节入索引；省空间、代价是区分度下降；排序/覆盖能力受限</td><td>长字符串（varchar(255) 等）</td><td class="mono">dict_field_t::prefix_len</td></tr>
+      </table>
+    </div>
+    <div class="note"><b>记忆框架：</b>所有类型都是"同一棵 B+树 + 不同的<b>元数据标志</b>"。类型差异体现在三个层面——<b>叶子内容</b>（聚簇/二级）、<b>键约束</b>（唯一/普通/全文/空间）、<b>可见性与排序</b>（不可见/降序/函数）——全部落在 <code class="k">dict_index_t</code> 这一个结构上。</div>
+  </div>
+</section>
+
+<!-- ===== 05 索引与查询执行 ===== -->
+<section class="block" id="exec">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="no">05</div>
+      <h2>优化器如何用索引</h2>
+      <div class="en">Execution & Optimizer</div>
+    </div>
+    <p class="sec-lead">SQL 层把"怎么读"交给优化器（<span class="srcpath">sql/sql_optimizer.cc</span>）：基于统计信息估算每种访问路径的代价，选出成本最低的执行计划。访问类型从优到劣依次为 <b>const → eq_ref → ref → range → index → ALL</b>（<code class="k">EXPLAIN.type</code>）。</p>
+
+    <h3 class="subt">访问类型阶梯</h3>
+    <div class="fig">
+      <svg viewBox="0 0 920 372" role="img" aria-label="EXPLAIN 访问类型从优到劣的阶梯">
+        <g font-family="'Noto Sans SC',sans-serif">
+          <g transform="translate(0,8)">
+            <rect width="6" height="36" rx="3" fill="#5BD087"/>
+            <text x="20" y="16" fill="#E6EDF3" font-size="14" font-weight="700" font-family="JetBrains Mono,monospace">system</text>
+            <text x="20" y="32" fill="#93A3B8" font-size="12">表仅 0/1 行（系统表），读一次</text>
+          </g>
+          <g transform="translate(0,52)">
+            <rect width="6" height="36" rx="3" fill="#8BD08A"/>
+            <text x="20" y="16" fill="#E6EDF3" font-size="14" font-weight="700" font-family="JetBrains Mono,monospace">const</text>
+            <text x="20" y="32" fill="#93A3B8" font-size="12">主键/唯一键等值查询，最多 1 行；一次读取常数</text>
+          </g>
+          <g transform="translate(0,96)">
+            <rect width="6" height="36" rx="3" fill="#B8D97A"/>
+            <text x="20" y="16" fill="#E6EDF3" font-size="14" font-weight="700" font-family="JetBrains Mono,monospace">eq_ref</text>
+            <text x="20" y="32" fill="#93A3B8" font-size="12">JOIN 中被驱动表用主键/唯一键等值关联，每行至多 1 匹配</text>
+          </g>
+          <g transform="translate(0,140)">
+            <rect width="6" height="36" rx="3" fill="#E3D27A"/>
+            <text x="20" y="16" fill="#E6EDF3" font-size="14" font-weight="700" font-family="JetBrains Mono,monospace">ref</text>
+            <text x="20" y="32" fill="#93A3B8" font-size="12">普通二级索引等值，可命中多行；最常用的好路径</text>
+          </g>
+          <g transform="translate(0,184)">
+            <rect width="6" height="36" rx="3" fill="#F5B84C"/>
+            <text x="20" y="16" fill="#E6EDF3" font-size="14" font-weight="700" font-family="JetBrains Mono,monospace">range</text>
+            <text x="20" y="32" fill="#93A3B8" font-size="12">索引范围扫描（BETWEEN / &gt; / IN）；叶子链表顺序读</text>
+          </g>
+          <g transform="translate(0,228)">
+            <rect width="6" height="36" rx="3" fill="#F08A5D"/>
+            <text x="20" y="16" fill="#E6EDF3" font-size="14" font-weight="700" font-family="JetBrains Mono,monospace">index</text>
+            <text x="20" y="32" fill="#93A3B8" font-size="12">全索引扫描（叶子全遍历），不回表时可能优于 ALL</text>
+          </g>
+          <g transform="translate(0,272)">
+            <rect width="6" height="36" rx="3" fill="#F26D6D"/>
+            <text x="20" y="16" fill="#E6EDF3" font-size="14" font-weight="700" font-family="JetBrains Mono,monospace">ALL</text>
+            <text x="20" y="32" fill="#93A3B8" font-size="12">全表扫描；优化器认为无索引可用或代价更低</text>
+          </g>
+        </g>
+        <g transform="translate(460,20)">
+          <rect width="430" height="336" rx="12" fill="#151C26" stroke="#3A4658"/>
+          <text x="18" y="30" fill="#5EA8E8" font-size="13" font-weight="700">阅读要点</text>
+          <text x="18" y="58" fill="#93A3B8" font-size="12.5">· type 只反映"访问方式"，不代表最终行数——<tspan fill="#E6EDF3">rows</tspan> 才是量级</text>
+          <text x="18" y="86" fill="#93A3B8" font-size="12.5">· <tspan fill="#E6EDF3">range</tspan> 与 <tspan fill="#E6EDF3">ref</tspan> 之间没有绝对好坏：范围大时优化器可能选 ALL</text>
+          <text x="18" y="114" fill="#93A3B8" font-size="12.5">· <tspan fill="#E6EDF3">index</tspan> 常用于覆盖扫描或排序复用（避免 filesort）</text>
+          <text x="18" y="142" fill="#93A3B8" font-size="12.5">· <tspan fill="#E6EDF3">const</tspan> 行：WHERE 主键=常量，优化器直接求值</text>
+          <text x="18" y="176" fill="#5EA8E8" font-size="13" font-weight="700">优化器核心文件</text>
+          <text x="18" y="202" fill="#93A3B8" font-size="12" font-family="JetBrains Mono,monospace">sql/opt_range.cc —— 范围/索引合并</text>
+          <text x="18" y="226" fill="#93A3B8" font-size="12" font-family="JetBrains Mono,monospace">sql/sql_optimizer.cc —— 代价选路</text>
+          <text x="18" y="250" fill="#93A3B8" font-size="12" font-family="JetBrains Mono,monospace">sql/opt_costmodel.cc —— 代价模型</text>
+          <text x="18" y="274" fill="#93A3B8" font-size="12" font-family="JetBrains Mono,monospace">sql/opt_explain.cc —— EXPLAIN 输出</text>
+          <text x="18" y="304" fill="#F5B84C" font-size="12">统计信息：dict_stats / mysql.innodb_table_stats</text>
+        </g>
+      </svg>
+      <div class="cap">type 阶梯示意（越靠上越优）。<b>优化器决策链：</b>统计信息 → 估算 rows → 按代价模型排序访问方案 → 选最小代价。<b>源码入口：</b><code class="mono">Optimize_table_order()</code> / <code class="mono">get_best_combination()</code>（<span class="srcpath">sql/sql_optimizer.cc</span>）。</div>
+    </div>
+
+    <h3 class="subt">索引下推（ICP）：把过滤下压到存储引擎</h3>
+    <p class="para">MySQL 5.6+：当 WHERE 中除索引列外还有<b>无法完全由索引判定</b>的条件时，在不开 ICP 的情况下，引擎只返回满足索引条件的行，服务层再过滤（大量行跨层传输）；开启 ICP 后，引擎层在<b>读取索引记录时直接应用剩余条件</b>，不匹配的行连回表都省了。</p>
+    <div class="comp-grid">
+      <div class="comp">
+        <div class="tag" style="background:#F26D6D">无 ICP</div>
+        <h4>全部行上送服务层过滤</h4>
+        <p>二级索引命中 1000 行 → 1000 次回表 → 服务层再逐行过滤 WHERE。回表与传输都浪费。</p>
+        <div class="kv">引擎返回 <span class="hl2">所有索引命中行</span><br>服务层 <span class="hl">evaluate_join_record()</span> 过滤<br>Extra: <span class="hl2">Using where</span></div>
+      </div>
+      <div class="comp">
+        <div class="tag" style="background:#5BD087">ICP</div>
+        <h4>引擎层先过滤再回表</h4>
+        <p>索引记录读出后，引擎层立即用剩余条件判断；只有通过的行才回表。回表次数从 1000 降到几十。</p>
+        <div class="kv">引擎层 <span class="hl">row_search_mvcc()</span> 内<br>应用 <span class="hl">pushdown condition</span><br>Extra: <span class="hl">Using index condition</span></div>
+      </div>
+    </div>
+    <div class="note"><b>源码：</b>优化器在 <span class="srcpath">sql/opt_range.cc</span> 的 <code class="mono">get_index_condition()</code> 生成下推条件，InnoDB 在 <span class="srcpath">storage/innobase/row/row0sel.cc</span> 的 <code class="mono">row_search_mvcc()</code> 中执行 <code class="mono">row_search_check_icp()</code> 判断。开关 <code class="k">optimizer_switch='index_condition_pushdown'</code>。</div>
+
+    <h3 class="subt">MRR 与索引合并</h3>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th style="width:16%">特性</th><th style="width:22%">解决什么</th><th>机制</th><th style="width:22%">源码 / 开关</th></tr>
+        <tr><td><b>MRR</b><br>Multi-Range Read</td><td>范围扫描大量回表时，随机 IO 放大</td><td>先把命中的主键收集排序（按聚簇页序），再批量回表 → 随机 IO 变顺序 IO</td><td class="mono">mrr 优化开关；opt_range.cc 的 DsMrr_impl</td></tr>
+        <tr><td><b>Index Merge<br>Union</b></td><td>两个索引各自的等值条件用 OR 连接</td><td>分别按两棵索引取主键集合，求并集后回表</td><td class="mono">get_index_merge_optimizations()（sql/sql_optimizer.cc）</td></tr>
+        <tr><td><b>Index Merge<br>Intersect</b></td><td>多个索引条件用 AND 连接、各自能走索引</td><td>分别取主键集合求交集（常因各索引独立扫描优于单索引+回表）</td><td class="mono">同上；Extra: Using intersect(...)</td></tr>
+        <tr><td><b>Index Merge<br>Sort-Union</b></td><td>OR 各分支是范围条件，无法直接合并</td><td>各分支主键排序后去重合并</td><td class="mono">Extra: Using sort_union(...)</td></tr>
+      </table>
+    </div>
+
+    <h3 class="subt">索引排序：让 ORDER BY 不 filesort</h3>
+    <p class="para">若 <code class="k">ORDER BY</code> 的列序与索引键序一致（且方向一致，或全部 DESC），优化器直接沿索引叶子顺序输出，<code class="k">EXPLAIN</code> 中不出现 <code class="k">Using filesort</code>——省掉一次排序。这也是联合索引设计的重要考量：<b>查询列 + 排序列尽量合成一个索引</b>。</p>
+    <div class="note warn"><b>filesort 本身不可怕：</b>数据量小时（优先队列排序）开销很低；真正的问题是<b>先排序再回表</b>的大行数场景。判断标准始终是 EXPLAIN 的 rows 与 Extra，而不是"出现 filesort 就必须建索引"。</div>
+
+    <h3 class="subt">EXPLAIN 实战解读</h3>
+    <p class="para">案例：表 <code class="k">user(id, name, age, email)</code>，有 <code class="k">idx_age(age)</code>、<code class="k">uk_email(email)</code> 两个索引。</p>
+    <pre class="code">-- 查询 1：等值 + 范围
+EXPLAIN SELECT name, age FROM user WHERE age = 30 AND name LIKE 'A%';
+| id | type  | key     | rows | Extra                       |
+| 1  | ref   | idx_age | 812  | Using index condition       |   ← ICP：age 定位，name 在引擎层过滤
+
+-- 查询 2：覆盖索引
+EXPLAIN SELECT age FROM user WHERE age BETWEEN 20 AND 30;
+| id | type  | key     | rows | Extra                  |
+| 1  | range | idx_age | 1942 | Using index            |   ← 只扫索引叶子，不回表
+
+-- 查询 3：唯一键等值
+EXPLAIN SELECT * FROM user WHERE email = 'a@b.com';
+| id | type  | key      | rows | Extra |
+| 1  | const | uk_email | 1    |       |   ← 唯一键等值，最多 1 行</pre>
+    <p class="para"><b>读法：</b>先看 <code class="k">type</code>（访问方式优劣）、再看 <code class="k">rows</code>（预估扫描量，乘上回表/过滤因子）、最后看 <code class="k">Extra</code> 中的三个关键词——<code class="k">Using index</code>（覆盖，好）、<code class="k">Using index condition</code>（ICP，较好）、<code class="k">Using where</code>（服务层过滤，注意）、<code class="k">Using filesort</code>（额外排序，检查）。</p>
+  </div>
+</section>
+
+<!-- ===== 06 索引的代价与维护 ===== -->
+<section class="block" id="cost">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="no">06</div>
+      <h2>索引的代价与维护</h2>
+      <div class="en">Cost & Maintenance</div>
+    </div>
+    <p class="sec-lead">索引不是免费的：每棵二级索引都是一棵独立的 B+树，<b>空间</b>要翻倍级增长，<b>写路径</b>要多维护一棵树。理解代价，才能理解"索引不是越多越好"。</p>
+
+    <h3 class="subt">两类代价</h3>
+    <div class="comp-grid">
+      <div class="comp">
+        <div class="tag" style="background:#F5B84C">空间</div>
+        <h4>存储放大</h4>
+        <p>每棵二级索引按"索引键 + 主键"重复存储。表越大、索引越宽、主键越长，放大越明显。主键用自增 int（4B）比 UUID（16B）省 4 倍二级索引空间。</p>
+        <div class="kv">Information_schema 统计<br><span class="hl">STATISTICS / TABLES</span><br>页数口径：<span class="hl">data_length / page_size</span></div>
+      </div>
+      <div class="comp">
+        <div class="tag" style="background:#F26D6D">写放大</div>
+        <h4>每次写入多棵树</h4>
+        <p>INSERT 要在每棵索引中插入记录；UPDATE 改索引列 = 删除 + 插入；DELETE 每棵树都要删除。写入热点时，二级索引是主要瓶颈。</p>
+        <div class="kv">插入路径 <span class="hl">row_ins_index_entry_step()</span><br>删除 <span class="hl">row_upd_del_mark_clust_rec()</span><br>文件 <span class="srcpath">storage/innobase/row/row0ins.cc</span></div>
+      </div>
+    </div>
+
+    <h3 class="subt">页分裂与页合并</h3>
+    <p class="para">B+树的插入是<b>在有序页中插入</b>：页满时发生<b>页分裂</b>（把一半记录移到新页，父节点加一个键）；删除后页太稀疏会<b>页合并</b>（相邻页合并、父节点删键）。分裂/合并向上传播，是随机写放大与<b>碎片</b>的来源。随机主键（UUID 类）因为插入位置随机，分裂频率远高于自增主键。</p>
+    <div class="flow">
+      <div class="step"><b>插入</b><br>定位叶子页 → 页内插入 → 满则分裂</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>分裂</b><br>一半记录移入新页，父页加键</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>传播</b><br>父页满继续向上分裂，树高+1</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>删除</b><br>页过稀疏（&lt;50%）触发合并</div>
+    </div>
+    <div class="note warn"><b>实践推论：</b>自增主键让插入永远落在"最右叶子页"，避免随机分裂；这也是"主键尽量自增/单调"的底层原因。<b>碎片</b>（页内利用率下降）可通过 <code class="k">OPTIMIZE TABLE</code> / <code class="k">ALTER TABLE ... FORCE</code> 重建，8.0 中均可在线执行。</div>
+
+    <h3 class="subt">Online DDL：重建索引不锁写</h3>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th style="width:16%">ALGORITHM</th><th style="width:22%">机制</th><th style="width:16%">是否复制行</th><th style="width:20%">并发 DML</th><th>说明</th></tr>
+        <tr><td><b>INSTANT</b></td><td>仅改数据字典，秒级完成</td><td class="ok">否</td><td class="ok">可</td><td>8.0.12+：加列/加索引的元数据操作；<code class="k">ADD INDEX</code> 走 INSTANT 的场景有限，主要是加列</td></tr>
+        <tr><td><b>INPLACE</b></td><td>原地重建（二级索引建树、表重建两阶段）</td><td class="warn">二级索引：否<br>表重建：是</td><td class="ok">可（在线）</td><td>8.0 默认；<code class="k">ADD INDEX</code> / <code class="k">OPTIMIZE</code> 走此路径</td></tr>
+        <tr><td><b>COPY</b></td><td>锁表 + 逐行复制到新表</td><td class="no">是</td><td class="no">否（锁写）</td><td>仅元数据不支持 INPLACE 的场景兜底</td></tr>
+      </table>
+    </div>
+    <p class="para">源码上，Online DDL 在 InnoDB 侧由 <span class="srcpath">storage/innobase/handler/handler0alter.cc</span> 实现：<code class="mono">ha_innobase::inplace_alter_table()</code> 分阶段构建索引（<code class="mono">row_merge_build_indexes()</code>），期间通过 <code class="mono">ddl_log</code> 记录增量变更，DDL 结束前回放保证一致性。8.4 中 <code class="k">innodb_ddl_threads</code> 控制并行构建线程数。</p>
+
+    <h3 class="subt">统计信息与基数</h3>
+    <p class="para">优化器选路的依据是<b>统计信息</b>：每个索引的<b>基数（cardinality）</b>——"索引键的去重值数量"与表行数的比值决定区分度。InnoDB 通过随机采样页估算（<span class="srcpath">storage/innobase/dict/dict0stats.cc</span>，<code class="mono">dict_stats_analyze_index()</code>），结果持久化到 <code class="k">mysql.innodb_table_stats</code> / <code class="k">mysql.innodb_index_stats</code>。数据变化大时执行 <code class="k">ANALYZE TABLE</code> 刷新，避免优化器按过期基数选错索引。</p>
+  </div>
+</section>
+
+<!-- ===== 07 索引设计建议 ===== -->
+<section class="block" id="design">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="no">07</div>
+      <h2>索引设计建议</h2>
+      <div class="en">Design Guide</div>
+    </div>
+    <p class="sec-lead">设计索引没有银弹，但有可复用的决策框架。核心判断顺序：<b>查询长什么样 → 哪些条件能走索引 → 怎么组合最少</b>。</p>
+
+    <h3 class="subt">决策流程</h3>
+    <div class="flow">
+      <div class="step"><b>① 找高频查询</b><br>慢日志 / 业务列表，按频率与耗时排序</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>② 提取过滤列</b><br>WHERE / JOIN 的等值与范围列</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>③ 设计联合索引</b><br>等值在前、范围在后；补覆盖列</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>④ EXPLAIN 验证</b><br>type / rows / Extra 三看</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>⑤ 量化收益</b><br>对比前后 rows 与耗时，去冗余</div>
+    </div>
+
+    <h3 class="subt">黄金规则</h3>
+    <div class="comp-grid">
+      <div class="comp"><div class="tag">规则 1</div><h4>高区分度优先</h4><p>区分度 = 去重值 / 总行数。区分度低的列（性别、状态）单独建索引几乎无用，只适合做联合索引的前缀或末尾补充。</p></div>
+      <div class="comp"><div class="tag">规则 2</div><h4>最左前缀</h4><p><code class="mono">(a,b,c)</code> 可服务 a / a,b / a,b,c；跳列的条件无法利用。设计时把最常等值的列放最左。</p></div>
+      <div class="comp"><div class="tag">规则 3</div><h4>覆盖优先</h4><p>高频点查尽量把 SELECT 列并入索引，让 Extra 出现 Using index，省回表。</p></div>
+      <div class="comp"><div class="tag">规则 4</div><h4>控制索引数</h4><p>每多一棵树，写放大 +1 份。写多读少的表索引宁少勿多；一般单表不超过 5~6 个。</p></div>
+      <div class="comp"><div class="tag">规则 5</div><h4>主键短而单调</h4><p>自增 int/bigint 优先；UUID 主键导致随机写与二级索引膨胀（8.0 可用 uuid_to_bin 转换）。</p></div>
+      <div class="comp"><div class="tag">规则 6</div><h4>警惕冗余</h4><p><code class="mono">(a,b)</code> 已存在时 <code class="mono">(a)</code> 是冗余；<code class="mono">uk(email)</code> 与 <code class="mono">idx(email)</code> 并存是典型浪费。</p></div>
+    </div>
+
+    <h3 class="subt">常见失效场景</h3>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th style="width:26%">写法</th><th style="width:20%">原因</th><th>正确姿势</th></tr>
+        <tr><td class="mono">WHERE name LIKE '%abc%'</td><td>前导通配符，无法用 B+树前缀定位</td><td>前缀匹配 <code class="mono">'abc%'</code> 可用；前导通配走全文索引</td></tr>
+        <tr><td class="mono">WHERE YEAR(create_time)=2024</td><td>索引列套函数，键序被破坏</td><td>范围写法 <code class="mono">create_time &gt;= '2024-01-01' AND &lt; '2025-01-01'</code>；或 8.0.13 函数索引</td></tr>
+        <tr><td class="mono">WHERE a = 1 OR b = 2</td><td>单索引对 OR 只覆盖一列</td><td>两个条件分别建索引（Index Merge），或改 UNION</td></tr>
+        <tr><td class="mono">WHERE c1 + 1 = 5</td><td>索引列参与运算</td><td>等号两边变换，让列保持独立：<code class="mono">c1 = 4</code></td></tr>
+        <tr><td class="mono">WHERE v = 123（v 为 varchar）</td><td>隐式类型转换（字符串↔数字）使索引失效</td><td>查询常量显式加引号，列与常量类型一致</td></tr>
+        <tr><td class="mono">WHERE a &lt;&gt; 1 / a NOT IN (...)</td><td>不等条件难以走索引范围</td><td>数据倾斜时可拆成 <code class="mono">a&lt;1 OR a&gt;1</code> 评估</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 08 源码地图 ===== -->
+<section class="block" id="source">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="no">08</div>
+      <h2>源码地图：知识点 → 文件 → 符号</h2>
+      <div class="en">Source Map</div>
+    </div>
+    <p class="sec-lead">以下是阅读 8.4 源码时，每个索引知识点应落到的<b>入口文件与关键符号</b>。按"读源码"的路径组织：<b>先读数据字典（索引长什么样）→ 再读页与记录（数据怎么存）→ 最后读搜索与插入（算法怎么跑）</b>。</p>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th style="width:20%">知识点</th><th style="width:34%">源码文件</th><th>关键符号</th></tr>
+        <tr><td><b>索引元数据</b>（类型/列/标志）</td><td class="mono">storage/innobase/include/dict0dict.h</td><td class="mono">dict_index_t · dict_field_t · DICT_CLUSTERED / DICT_UNIQUE / DICT_SPATIAL / DICT_FTS</td></tr>
+        <tr><td><b>B+树查找</b></td><td class="mono">storage/innobase/btr/btr0cur.cc</td><td class="mono">btr_cur_search_to_nth_level() · btr_cur_t</td></tr>
+        <tr><td><b>数据页与页目录</b></td><td class="mono">storage/innobase/include/page0page.h</td><td class="mono">page_cur_search_with_match() · PAGE_DIR_SLOT · PAGE_N_DIR_SLOTS</td></tr>
+        <tr><td><b>行记录结构</b>（头/指针/隐藏列）</td><td class="mono">storage/innobase/include/rem0rec.h</td><td class="mono">rec_t · rec_get_next_offs() · rec_get_offsets()</td></tr>
+        <tr><td><b>记录比较</b>（键序/collation）</td><td class="mono">storage/innobase/rem/rem0cmp.cc</td><td class="mono">cmp_rec_rec_with_match() · cmp_data()</td></tr>
+        <tr><td><b>插入与索引维护</b></td><td class="mono">storage/innobase/row/row0ins.cc</td><td class="mono">row_ins_index_entry_step() · 唯一性检查 row_ins_dupl_error_with_rec()</td></tr>
+        <tr><td><b>查找与回表</b></td><td class="mono">storage/innobase/row/row0sel.cc</td><td class="mono">row_search_mvcc() · row_search_check_icp()（ICP）</td></tr>
+        <tr><td><b>Online DDL / 索引重建</b></td><td class="mono">storage/innobase/handler/handler0alter.cc</td><td class="mono">ha_innobase::inplace_alter_table() · row_merge_build_indexes()</td></tr>
+        <tr><td><b>自适应哈希</b></td><td class="mono">storage/innobase/include/ha0ha.h</td><td class="mono">hash_search() · btr_search_enabled</td></tr>
+        <tr><td><b>全文索引</b></td><td class="mono">storage/innobase/fts/fts0fts.h</td><td class="mono">fts0* 模块 · FTS_DOC_ID</td></tr>
+        <tr><td><b>空间索引（R 树）</b></td><td class="mono">storage/innobase/include/rtr0rtr.h</td><td class="mono">rtr_* 函数族</td></tr>
+        <tr><td><b>统计信息与基数</b></td><td class="mono">storage/innobase/dict/dict0stats.cc</td><td class="mono">dict_stats_analyze_index() · mysql.innodb_index_stats</td></tr>
+        <tr><td><b>引擎索引接口</b></td><td class="mono">storage/innobase/handler/ha_innodb.cc</td><td class="mono">index_read() · index_first() / index_next() · read_range_first()</td></tr>
+        <tr><td><b>优化器选路</b></td><td class="mono">sql/sql_optimizer.cc</td><td class="mono">Optimize_table_order() · get_best_combination() · get_index_merge_optimizations()</td></tr>
+        <tr><td><b>范围 / 跳跃扫描 / MRR</b></td><td class="mono">sql/opt_range.cc</td><td class="mono">get_index_condition() · test_skip_scan() · DsMrr_impl</td></tr>
+        <tr><td><b>代价模型</b></td><td class="mono">sql/opt_costmodel.cc</td><td class="mono">Cost_model_server · Cost_model_table</td></tr>
+        <tr><td><b>EXPLAIN 输出</b></td><td class="mono">sql/opt_explain.cc</td><td class="mono">Explain_query / Explain_table</td></tr>
+      </table>
+    </div>
+    <div class="note"><b>建议阅读顺序：</b>① <code class="mono">dict0dict.h</code> 认识索引结构 → ② <code class="mono">rem0rec.h / page0page.h</code> 认识页与记录 → ③ <code class="mono">btr0cur.cc</code> 认识 B+树搜索 → ④ <code class="mono">row0sel.cc / row0ins.cc</code> 认识读写全路径 → ⑤ <code class="mono">sql/opt_range.cc</code> 认识优化器如何选它。</div>
+  </div>
+</section>
+
+<!-- ===== 页脚 ===== -->
+<footer>
+  <div class="wrap">
+    <div>MySQL Server 8.4 LTS 源码学习系列 · 本页为知识梳理，代码路径基于 8.4 分支</div>
+    <div><a href="OVERVIEW.html">知识图谱总览</a> · <a href="MVCC.html">MVCC 专题</a> · <a href="INDEX.html">索引专题</a></div>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<script>
+(function(){
+  'use strict';
+  /* ===== B+树查找步骤交互 ===== */
+  var svg = document.querySelector('#btree svg');
+  var btns = Array.prototype.slice.call(document.querySelectorAll('#btreeCtrl button'));
+  if(svg && btns.length){
+    var lvl1 = svg.querySelector('.lvl1 rect');
+    var lvl2 = svg.querySelectorAll('.lvl2')[1].querySelector('rect');
+    var lvl3 = svg.querySelectorAll('.lvl3')[2].querySelector('rect');
+    var pl = svg.querySelector('.pathline');
+    var hm = svg.querySelector('.hitmark');
+    var DFLT = '#3A4658', HI = '#5EA8E8', HIT = '#5BD087';
+    function reset(){
+      [lvl1,lvl2,lvl3].forEach(function(r){ r.setAttribute('stroke',DFLT); r.setAttribute('stroke-width','1'); });
+      pl.setAttribute('opacity','0');
+      hm.setAttribute('opacity','0');
+    }
+    function show(n){
+      reset();
+      if(n>=1){ lvl1.setAttribute('stroke',HI); lvl1.setAttribute('stroke-width','2.5'); }
+      if(n>=2){ lvl2.setAttribute('stroke',HI); lvl2.setAttribute('stroke-width','2.5'); pl.setAttribute('opacity','1'); }
+      if(n>=3){ lvl3.setAttribute('stroke',HIT); lvl3.setAttribute('stroke-width','2.5'); hm.setAttribute('opacity','1'); }
+    }
+    btns.forEach(function(b,idx){
+      b.addEventListener('click',function(){
+        btns.forEach(function(x){ x.classList.remove('on'); });
+        b.classList.add('on');
+        show(idx);
+      });
+    });
+    show(0);
+  }
+
+  /* ===== ECharts：B+树容量 ===== */
+  var cap = document.getElementById('capChart');
+  if(cap && typeof echarts !== 'undefined'){
+    var c = echarts.init(cap);
+    var rows = [100, 100000, 100000000, 100000000000];
+    var labels = ['100', '10 万', '1 亿', '1000 亿'];
+    c.setOption({
+      backgroundColor:'transparent',
+      tooltip:{
+        trigger:'axis', confine:true,
+        backgroundColor:'rgba(15,20,27,.95)', borderColor:'rgba(94,168,232,.4)',
+        textStyle:{ color:'#E6EDF3', fontSize:12 },
+        formatter:function(p){
+          var i=p[0].dataIndex;
+          return '树高 '+ (i+1) +' 层<br/>可容纳约 <b>'+ labels[i] +'</b> 行';
+        }
+      },
+      grid:{ left:64, right:24, top:28, bottom:44, containLabel:true },
+      xAxis:{ type:'category', data:['1 层','2 层','3 层','4 层'], axisLine:{lineStyle:{color:'#3A4658'}}, axisLabel:{color:'#93A3B8',fontSize:12} },
+      yAxis:{
+        type:'log', name:'可容纳行数', nameTextStyle:{color:'#93A3B8',fontSize:11},
+        axisLine:{lineStyle:{color:'#3A4658'}}, axisLabel:{color:'#93A3B8',fontSize:11, formatter:function(v){ return v>=1e9 ? (v/1e9)+'0亿' : v>=1e4 ? (v/1e4)+'万' : v; }}
+      },
+      series:[{
+        type:'bar', data:rows,
+        barWidth:'46%',
+        itemStyle:{ color:'#5EA8E8', borderRadius:[6,6,0,0] },
+        label:{ show:true, position:'top', color:'#E6EDF3', fontSize:11, formatter:function(p){ return labels[p.dataIndex]; } }
+      }]
+    });
+    window.addEventListener('resize', function(){ c.resize(); });
+  }
+
+  /* ===== 导航滚动高亮 ===== */
+  var chips = Array.prototype.slice.call(document.querySelectorAll('nav.top a.chip'));
+  var secs = Array.prototype.slice.call(document.querySelectorAll('section.block'));
+  if('IntersectionObserver' in window && chips.length){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){
+          var id = en.target.id;
+          chips.forEach(function(ch){
+            if(ch.getAttribute('href') === '#'+id){ ch.style.color='#5EA8E8'; ch.style.borderColor='#5EA8E8'; }
+            else { ch.style.color=''; ch.style.borderColor=''; }
+          });
+        }
+      });
+    },{ rootMargin:'-30% 0px -60% 0px' });
+    secs.forEach(function(s){ io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>
