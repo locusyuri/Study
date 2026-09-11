@@ -1,0 +1,9 @@
+# Images
+*.png
+*.jpg
+*.jpeg
+
+# 嵌套的独立源码仓库（由各自 git 管理，外层不跟踪）
+/Database/
+/Middleware/
+/SpringBoot/
