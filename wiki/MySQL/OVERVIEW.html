@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MySQL 知识图谱总览 · MySQL Server 8.4 源码知识点架构</title>
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;900&display=swap">
+<style>
+  :root{
+    --bg:#0F141B;
+    --bg2:#141B24;
+    --card:#161E28;
+    --card2:#1B2531;
+    --text:#E7EAEE;
+    --text2:#9AA5B1;
+    --line:rgba(255,255,255,.07);
+    --mono:"Cascadia Code",ui-monospace,Consolas,"SF Mono",Menlo,monospace;
+    --c1:#E8A87C; /* 存储引擎 橙 */
+    --c2:#7FB4E8; /* 索引 蓝 */
+    --c3:#6ECBA8; /* 事务 绿 */
+    --c4:#B98CE8; /* 日志 紫 */
+    --c5:#6FC7DE; /* 查询 青 */
+    --c6:#E88AA5; /* 复制 玫红 */
+    --c7:#E3D27A; /* 管理 黄 */
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    font-size:15px;line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit;text-decoration:none;}
+  code, .path{
+    font-family:var(--mono);
+    font-size:.86em;
+  }
+  .path{
+    color:var(--text2);
+    background:rgba(0,0,0,.32);
+    border:1px solid rgba(255,255,255,.05);
+    padding:1px 6px;
+    border-radius:5px;
+    white-space:nowrap;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px;}
+
+  /* ===== 顶栏导航 ===== */
+  header{
+    position:sticky;top:0;z-index:50;
+    background:rgba(15,20,27,.88);
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .nav{display:flex;align-items:center;gap:8px;padding:10px 0;overflow-x:auto;scrollbar-width:none;}
+  .nav::-webkit-scrollbar{display:none;}
+  .brand{
+    font-weight:900;font-size:15px;letter-spacing:.5px;white-space:nowrap;
+    margin-right:10px;
+  }
+  .brand b{color:#6FC7DE;}
+  .chip{
+    flex:0 0 auto;
+    padding:4px 12px;border-radius:999px;
+    font-size:12.5px;color:var(--text2);
+    border:1px solid var(--line);
+    cursor:pointer;white-space:nowrap;
+    transition:color .15s,border-color .15s,background .15s;
+  }
+  .chip:hover{color:var(--text);border-color:rgba(255,255,255,.22);}
+  .chip.on{color:var(--text);background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.28);}
+  .chip .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;}
+
+  /* ===== Hero ===== */
+  .hero{padding:56px 0 44px;}
+  .hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:36px;align-items:center;}
+  .hero .kicker{
+    font-size:12.5px;letter-spacing:2px;color:var(--text2);
+    text-transform:uppercase;margin-bottom:14px;
+  }
+  .hero h1{font-size:40px;line-height:1.22;font-weight:900;letter-spacing:.5px;}
+  .hero h1 .hl{color:#6FC7DE;}
+  .hero .sub{margin-top:14px;color:var(--text2);font-size:15px;max-width:520px;}
+  .pillars{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap;}
+  .pillar{
+    border:1px solid var(--line);border-radius:10px;padding:10px 14px;
+    background:var(--card);flex:1 1 150px;min-width:0;
+  }
+  .pillar .n{font-size:11px;color:var(--text2);letter-spacing:1px;margin-bottom:3px;}
+  .pillar .t{font-size:13.5px;font-weight:600;}
+  .pillar .f{font-family:var(--mono);font-size:11.5px;color:var(--text2);margin-top:3px;display:block;}
+
+  .graph{position:relative;}
+  .graph svg{width:100%;height:auto;display:block;}
+  .graph .node{cursor:pointer;transition:opacity .15s;}
+  .graph .node:hover{opacity:.72;}
+  .graph .center{pointer-events:none;}
+  .graph text{font-family:"Noto Sans SC",sans-serif;user-select:none;}
+
+  /* ===== 领域区块 ===== */
+  .domain{padding:34px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .domain-head{display:flex;align-items:baseline;gap:12px;margin-bottom:6px;}
+  .domain-no{
+    font-family:var(--mono);font-size:15px;font-weight:700;
+  }
+  .domain-title{font-size:23px;font-weight:700;letter-spacing:.3px;}
+  .domain-en{font-size:12px;color:var(--text2);letter-spacing:1px;}
+  .domain-desc{color:var(--text2);font-size:13.5px;margin:4px 0 18px 40px;max-width:760px;}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;}
+  .card{
+    background:var(--card);border:1px solid var(--line);
+    border-radius:10px;padding:14px 16px;
+    display:flex;flex-direction:column;gap:8px;min-width:0;
+    transition:transform .15s,border-color .15s;
+  }
+  .card:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.16);}
+  .card .k{font-size:14.5px;font-weight:600;}
+  .card .d{font-size:12.5px;color:var(--text2);line-height:1.6;}
+  .card .s{font-size:12px;color:var(--text);}
+  .card .s .path{white-space:normal;word-break:break-all;}
+  .c1 .domain-no,.c1 .domain-title{color:var(--c1);}
+  .c2 .domain-no,.c2 .domain-title{color:var(--c2);}
+  .c3 .domain-no,.c3 .domain-title{color:var(--c3);}
+  .c4 .domain-no,.c4 .domain-title{color:var(--c4);}
+  .c5 .domain-no,.c5 .domain-title{color:var(--c5);}
+  .c6 .domain-no,.c6 .domain-title{color:var(--c6);}
+  .c7 .domain-no,.c7 .domain-title{color:var(--c7);}
+  .c1 .card{border-left:3px solid var(--c1);}
+  .c2 .card{border-left:3px solid var(--c2);}
+  .c3 .card{border-left:3px solid var(--c3);}
+  .c4 .card{border-left:3px solid var(--c4);}
+  .c5 .card{border-left:3px solid var(--c5);}
+  .c6 .card{border-left:3px solid var(--c6);}
+  .c7 .card{border-left:3px solid var(--c7);}
+
+  /* ===== MVCC 专题 ===== */
+  .mvcc{padding:40px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .mvcc-title{font-size:23px;font-weight:700;color:var(--c3);margin-bottom:6px;}
+  .mvcc-sub{color:var(--text2);font-size:13.5px;margin-bottom:18px;}
+  .mvcc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;}
+  .mvcc-box{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:16px 18px;}
+  .mvcc-box h4{font-size:14px;font-weight:700;color:var(--c3);margin-bottom:10px;}
+  .mvcc-box ul{list-style:none;}
+  .mvcc-box li{font-size:13px;color:var(--text);padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.06);}
+  .mvcc-box li:last-child{border-bottom:none;}
+  .mvcc-box li .m{color:var(--text2);}
+  .algo{
+    font-family:var(--mono);font-size:12.5px;line-height:1.85;color:#BFE8D5;
+    background:rgba(0,0,0,.35);border:1px solid rgba(110,203,168,.25);
+    border-radius:8px;padding:14px 16px;white-space:pre;overflow-x:auto;
+  }
+
+  /* ===== 阅读路径 ===== */
+  .pathway{padding:40px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .pathway-title{font-size:23px;font-weight:700;margin-bottom:6px;}
+  .pathway-sub{color:var(--text2);font-size:13.5px;margin-bottom:20px;}
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;counter-reset:step;}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;position:relative;}
+  .step .no{
+    font-family:var(--mono);font-size:12px;font-weight:700;color:#0F141B;
+    background:var(--text);width:22px;height:22px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;margin-bottom:10px;
+  }
+  .step h5{font-size:14.5px;font-weight:700;margin-bottom:6px;}
+  .step p{font-size:12.5px;color:var(--text2);}
+  .step p .path{white-space:normal;}
+
+  /* ===== 页脚 ===== */
+  footer{border-top:1px solid var(--line);padding:28px 0 40px;color:var(--text2);font-size:12.5px;}
+  footer .wrap{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+
+  /* ===== 响应式 ===== */
+  @media (max-width:860px){
+    .hero{padding:38px 0 30px;}
+    .hero-grid{grid-template-columns:1fr;gap:24px;}
+    .hero h1{font-size:30px;}
+    .domain-desc{margin-left:0;}
+    .card .s .path{white-space:normal;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto;}
+    *{transition:none!important;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <div class="brand">MySQL <b>知识图谱</b></div>
+    <div class="chip on" data-target="overview"><span class="dot" style="background:#6FC7DE"></span>总览</div>
+    <div class="chip" data-target="d1"><span class="dot" style="background:var(--c1)"></span>存储引擎</div>
+    <div class="chip" data-target="d2"><span class="dot" style="background:var(--c2)"></span>索引</div>
+    <div class="chip" data-target="d3"><span class="dot" style="background:var(--c3)"></span>事务并发</div>
+    <div class="chip" data-target="d4"><span class="dot" style="background:var(--c4)"></span>日志恢复</div>
+    <div class="chip" data-target="d5"><span class="dot" style="background:var(--c5)"></span>查询处理</div>
+    <div class="chip" data-target="d6"><span class="dot" style="background:var(--c6)"></span>复制高可用</div>
+    <div class="chip" data-target="d7"><span class="dot" style="background:var(--c7)"></span>管理监控</div>
+    <div class="chip" data-target="mvcc"><span class="dot" style="background:var(--c3)"></span>MVCC 专题</div>
+    <div class="chip" data-target="pathway"><span class="dot" style="background:var(--text2)"></span>阅读路径</div>
+  </div>
+</header>
+
+<!-- ===== Hero ===== -->
+<section class="hero" id="overview">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="kicker">MySQL Server 8.4 LTS · Source Map</div>
+      <h1>MySQL 源码的<span class="hl">知识图谱</span><br>知识点架构总览</h1>
+      <p class="sub">面向源码学习的知识地图：把 MySQL 的核心知识点按七大领域组织，每个知识点精确对应到仓库中的文件与关键结构。读懂源码的本质，是建立「概念 → 文件 → 结构」的三级映射。</p>
+      <div class="pillars">
+        <div class="pillar">
+          <div class="n">SQL 层</div>
+          <div class="t">语义与执行</div>
+          <span class="f">sql/ · 1557 files</span>
+        </div>
+        <div class="pillar">
+          <div class="n">引擎契约</div>
+          <div class="t">handler 接口</div>
+          <span class="f">sql/handler.h</span>
+        </div>
+        <div class="pillar">
+          <div class="n">物理实现</div>
+          <div class="t">InnoDB</div>
+          <span class="f">storage/innobase/ · 552 files</span>
+        </div>
+      </div>
+    </div>
+    <div class="graph" aria-label="MySQL 七大知识领域关系图">
+      <svg viewBox="0 0 720 440" role="img" aria-hidden="true">
+        <defs>
+          <radialGradient id="cg" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#2A3A52"/>
+            <stop offset="100%" stop-color="#1B2531"/>
+          </radialGradient>
+        </defs>
+        <g stroke="rgba(255,255,255,.10)" stroke-width="1.2">
+          <line x1="360" y1="220" x2="360" y2="60"/>
+          <line x1="360" y1="220" x2="477" y2="117"/>
+          <line x1="360" y1="220" x2="506" y2="243"/>
+          <line x1="360" y1="220" x2="425" y2="345"/>
+          <line x1="360" y1="220" x2="295" y2="345"/>
+          <line x1="360" y1="220" x2="214" y2="243"/>
+          <line x1="360" y1="220" x2="243" y2="117"/>
+        </g>
+        <g class="center">
+          <circle cx="360" cy="220" r="62" fill="url(#cg)" stroke="#6FC7DE" stroke-width="2"/>
+          <text x="360" y="212" text-anchor="middle" fill="#E7EAEE" font-size="19" font-weight="700">MySQL</text>
+          <text x="360" y="234" text-anchor="middle" fill="#9AA5B1" font-size="12">8.4 LTS</text>
+        </g>
+        <g class="node" data-target="d1">
+          <circle cx="360" cy="60" r="40" fill="rgba(232,168,124,.14)" stroke="var(--c1)" stroke-width="1.5"/>
+          <text x="360" y="56" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">存储</text>
+          <text x="360" y="72" text-anchor="middle" fill="#9AA5B1" font-size="11">引擎</text>
+        </g>
+        <g class="node" data-target="d2">
+          <circle cx="477" cy="117" r="40" fill="rgba(127,180,232,.14)" stroke="var(--c2)" stroke-width="1.5"/>
+          <text x="477" y="113" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">索引</text>
+          <text x="477" y="129" text-anchor="middle" fill="#9AA5B1" font-size="11">B+树</text>
+        </g>
+        <g class="node" data-target="d3">
+          <circle cx="506" cy="243" r="40" fill="rgba(110,203,168,.14)" stroke="var(--c3)" stroke-width="1.5"/>
+          <text x="506" y="239" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">事务</text>
+          <text x="506" y="255" text-anchor="middle" fill="#9AA5B1" font-size="11">并发</text>
+        </g>
+        <g class="node" data-target="d4">
+          <circle cx="425" cy="345" r="40" fill="rgba(185,140,232,.14)" stroke="var(--c4)" stroke-width="1.5"/>
+          <text x="425" y="341" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">日志</text>
+          <text x="425" y="357" text-anchor="middle" fill="#9AA5B1" font-size="11">恢复</text>
+        </g>
+        <g class="node" data-target="d5">
+          <circle cx="295" cy="345" r="40" fill="rgba(111,199,222,.14)" stroke="var(--c5)" stroke-width="1.5"/>
+          <text x="295" y="341" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">查询</text>
+          <text x="295" y="357" text-anchor="middle" fill="#9AA5B1" font-size="11">处理</text>
+        </g>
+        <g class="node" data-target="d6">
+          <circle cx="214" cy="243" r="40" fill="rgba(232,138,165,.14)" stroke="var(--c6)" stroke-width="1.5"/>
+          <text x="214" y="239" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">复制</text>
+          <text x="214" y="255" text-anchor="middle" fill="#9AA5B1" font-size="11">高可用</text>
+        </g>
+        <g class="node" data-target="d7">
+          <circle cx="243" cy="117" r="40" fill="rgba(227,210,122,.14)" stroke="var(--c7)" stroke-width="1.5"/>
+          <text x="243" y="113" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">管理</text>
+          <text x="243" y="129" text-anchor="middle" fill="#9AA5B1" font-size="11">监控</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<main class="wrap">
+
+<!-- ===== ① 存储引擎与数据组织 ===== -->
+<section class="domain c1" id="d1">
+  <div class="domain-head">
+    <span class="domain-no">01</span>
+    <span class="domain-title">存储引擎与数据组织</span>
+    <span class="domain-en">STORAGE ENGINES &amp; DATA ORGANIZATION</span>
+  </div>
+  <p class="domain-desc">插件式架构是 MySQL 的根：SQL 层与存储层仅通过 <span class="path">sql/handler.h</span> 的 handler 抽象解耦。数据最终以「表空间 → 段 → 页 → 记录」的层级落盘。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">插件式引擎架构</div>
+      <div class="s"><span class="path">sql/handler.h</span> · <span class="path">include/mysql/plugin.h</span></div>
+      <div class="d">handler 抽象类 + handlerton 注册表：open/read/write 与事务回调，引擎可插拔的唯一契约。</div>
+    </div>
+    <div class="card">
+      <div class="k">表空间 / 段 / 页</div>
+      <div class="s"><span class="path">storage/innobase/fsp0fsp.*</span></div>
+      <div class="d">表空间内部分配叶子段与非叶子段，按区（extent）管理，页是分配与 IO 的最小单位。</div>
+    </div>
+    <div class="card">
+      <div class="k">页结构</div>
+      <div class="s"><span class="path">include/page0page.h</span></div>
+      <div class="d">PAGE_LEVEL（B+树层号）、PAGE_N_DIR_SLOTS、FIL_PAGE_PREV/NEXT 双向链表。</div>
+    </div>
+    <div class="card">
+      <div class="k">记录格式</div>
+      <div class="s"><span class="path">rem/rec.h</span></div>
+      <div class="d">COMPACT/DYNAMIC 记录 5 字节头（REC_N_NEW_EXTRA_BYTES），删除标记、节点指针。</div>
+    </div>
+    <div class="card">
+      <div class="k">MyISAM 引擎</div>
+      <div class="s"><span class="path">storage/myisam/</span></div>
+      <div class="d">.MYD 数据 + .MYI 索引，keycache 键缓存，非事务的对比参照。</div>
+    </div>
+    <div class="card">
+      <div class="k">内存临时表</div>
+      <div class="s"><span class="path">storage/temptable/</span> · <span class="path">sql/sql_tmp_table.cc</span></div>
+      <div class="d">优化器排序/去重/物化的临时表引擎，内存放不下落盘。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ② 索引 ===== -->
+<section class="domain c2" id="d2">
+  <div class="domain-head">
+    <span class="domain-no">02</span>
+    <span class="domain-title">索引</span>
+    <span class="domain-en">INDEXES</span>
+  </div>
+  <p class="domain-desc">索引横跨三层：SQL 层用 KEY 描述、优化器用 range 区间使用、InnoDB 用 B+树物理实现。理解「描述 → 契约 → 实现」是索引源码的主线。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">索引描述结构</div>
+      <div class="s"><span class="path">sql/key.h</span></div>
+      <div class="d">KEY（长度/列数/算法/基数）与 KEY_PART_INFO（偏移/前缀/排序方向/字符集比较）。</div>
+    </div>
+    <div class="card">
+      <div class="k">范围优化</div>
+      <div class="s"><span class="path">sql/range_optimizer/</span></div>
+      <div class="d">SEL_ARG 区间树合并 WHERE 条件，QUICK_RANGE 翻译成 key_range 交给引擎。</div>
+    </div>
+    <div class="card">
+      <div class="k">B+ 树实现</div>
+      <div class="s"><span class="path">btr/btr0btr.cc</span> · <span class="path">btr/btr0cur.cc</span></div>
+      <div class="d">dict_index_t 描述树（根页/层数），btr_cur_search_to_nth_level 完成根到叶的查找。</div>
+    </div>
+    <div class="card">
+      <div class="k">二级索引回表</div>
+      <div class="s"><span class="path">row/row0sel.cc</span></div>
+      <div class="d">row_search_mvcc：二级索引记录附带主键列，再沿聚簇索引查完整行。</div>
+    </div>
+    <div class="card">
+      <div class="k">自适应哈希 / Change Buffer</div>
+      <div class="s"><span class="path">btr0sea.*</span> · <span class="path">ibuf0ibuf.*</span></div>
+      <div class="d">AHI 为高频等值查询建内存哈希；Change Buffer 缓冲二级索引修改，减少随机 IO。</div>
+    </div>
+    <div class="card">
+      <div class="k">全文 / 空间 / 在线建索引</div>
+      <div class="s"><span class="path">fts/</span> · <span class="path">ddl0impl-rtree.h</span> · <span class="path">ddl/</span></div>
+      <div class="d">全文倒排、空间 R-tree、ALTER 在线后台构建新索引树。</div>
+    </div>
+    <div class="card">
+      <div class="k">索引统计</div>
+      <div class="s"><span class="path">dict0stats.*</span></div>
+      <div class="d">后台采样各索引不同值数量 n_diff，填充 KEY::rec_per_key 供优化器估行数。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ③ 事务与并发控制 ===== -->
+<section class="domain c3" id="d3">
+  <div class="domain-head">
+    <span class="domain-no">03</span>
+    <span class="domain-title">事务与并发控制</span>
+    <span class="domain-en">TRANSACTIONS &amp; CONCURRENCY</span>
+  </div>
+  <p class="domain-desc">ACID 在源码里是一条责任链：原子性靠 undo 与状态机，隔离性靠 ReadView 与行锁，持久性靠 redo，一致性由 binlog 两阶段提交兜底。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">事务对象与状态机</div>
+      <div class="s"><span class="path">include/trx0trx.h</span></div>
+      <div class="d">trx_t（id/no/read_view）与 trx_state_t：NOT_STARTED→ACTIVE→PREPARED→COMMITTED。</div>
+    </div>
+    <div class="card">
+      <div class="k">事务系统</div>
+      <div class="s"><span class="path">trx/trx0sys.*</span></div>
+      <div class="d">trx_sys_t：max_trx_id 分配、rw_trx_list 活跃读写事务、serialisation_list 提交序。</div>
+    </div>
+    <div class="card">
+      <div class="k">SQL 层事务 / XA</div>
+      <div class="s"><span class="path">sql/transaction.cc</span> · <span class="path">sql/xa/</span></div>
+      <div class="d">trans_begin/commit/rollback 协调引擎；XA 语句与崩溃后裁决（recovery.cc）。</div>
+    </div>
+    <div class="card">
+      <div class="k">行锁 / 间隙锁</div>
+      <div class="s"><span class="path">lock/lock0lock.*</span></div>
+      <div class="d">LOCK_S/X、LOCK_ORDINARY（next-key）、LOCK_GAP、LOCK_REC_NOT_GAP。</div>
+    </div>
+    <div class="card">
+      <div class="k">死锁检测</div>
+      <div class="s"><span class="path">lock/lock0wait.cc</span></div>
+      <div class="d">等待图上 DFS 找环，选择代价最小的事务回滚。</div>
+    </div>
+    <div class="card">
+      <div class="k">元数据锁 MDL</div>
+      <div class="s"><span class="path">sql/mdl.h</span> · <span class="path">sql/mdl.cc</span></div>
+      <div class="d">保护表结构并发变更与查询的一致性，DDL 安全的关键。</div>
+    </div>
+    <div class="card">
+      <div class="k">两阶段提交 + 组提交</div>
+      <div class="s"><span class="path">handler/ha_innodb.cc</span> · <span class="path">sql/rpl_commit_stage_manager.h</span></div>
+      <div class="d">innobase_prepare → binlog FLUSH/SYNC/COMMIT 三阶段 → innobase_commit，多事务合并落盘。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ④ 日志与恢复 ===== -->
+<section class="domain c4" id="d4">
+  <div class="domain-head">
+    <span class="domain-no">04</span>
+    <span class="domain-title">日志与恢复</span>
+    <span class="domain-en">LOGGING &amp; RECOVERY</span>
+  </div>
+  <p class="domain-desc">WAL 是持久性的骨架：数据页先改缓冲池、redo 先行落盘；undo 支撑回滚与 MVCC；binlog 服务复制。崩溃恢复以 mtr 为原子单位前滚 + 回滚。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">redo log</div>
+      <div class="s"><span class="path">log/log0log.*</span> · <span class="path">log/log0write.cc</span></div>
+      <div class="d">LSN 单调递增标记日志流，后台线程刷盘，log_t 全局对象管理。</div>
+    </div>
+    <div class="card">
+      <div class="k">崩溃恢复</div>
+      <div class="s"><span class="path">log/log0recv.cc</span></div>
+      <div class="d">启动时重放 redo 前滚，配合 undo 回滚未提交事务，恢复一致性。</div>
+    </div>
+    <div class="card">
+      <div class="k">undo log</div>
+      <div class="s"><span class="path">trx/trx0undo.*</span> · <span class="path">trx/trx0rec.*</span></div>
+      <div class="d">TRX_UNDO_INSERT_REC=11 等记录类型；insert undo 只管回滚，update undo 承载版本链。</div>
+    </div>
+    <div class="card">
+      <div class="k">purge 清理</div>
+      <div class="s"><span class="path">trx/trx0purge.cc</span></div>
+      <div class="d">按全局最小活跃 ReadView 水位，物理删除不再可见的旧版本与已删行。</div>
+    </div>
+    <div class="card">
+      <div class="k">binlog</div>
+      <div class="s"><span class="path">sql/binlog.cc</span> · <span class="path">sql/binlog/</span> · <span class="path">libbinlogevents/</span></div>
+      <div class="d">逻辑日志：事件格式定义与写入路径，复制与恢复的源头。</div>
+    </div>
+    <div class="card">
+      <div class="k">双写缓冲</div>
+      <div class="s"><span class="path">buf/buf0dblwr.cc</span></div>
+      <div class="d">防止页半写：先写双写文件再写数据文件，避免崩溃后页损坏。</div>
+    </div>
+    <div class="card">
+      <div class="k">缓冲池管理</div>
+      <div class="s"><span class="path">buf/buf0buf.cc</span> · <span class="path">buf0lru.cc</span> · <span class="path">buf0rea.cc</span></div>
+      <div class="d">LRU 淘汰、顺序预读、flush 列表刷脏，读路径的性能核心。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑤ 查询处理 ===== -->
+<section class="domain c5" id="d5">
+  <div class="domain-head">
+    <span class="domain-no">05</span>
+    <span class="domain-title">查询处理</span>
+    <span class="domain-en">QUERY PROCESSING</span>
+  </div>
+  <p class="domain-desc">一条 SQL 走四段流水线：词法语法 → 语义解析 → 优化 → 执行。8.0 起优化器新增超图算法，执行器重构为火山式行迭代器。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">词法 / 语法解析</div>
+      <div class="s"><span class="path">sql/sql_lex.cc</span> · <span class="path">sql/sql_yacc.yy</span></div>
+      <div class="d">bison 语法生成 PT_* 语法树节点，预处理在 sql_prepare.cc。</div>
+    </div>
+    <div class="card">
+      <div class="k">语义解析</div>
+      <div class="s"><span class="path">sql/sql_resolver.cc</span></div>
+      <div class="d">表/列绑定、子查询展开，产出 Query_block 与 Item 表达式树。</div>
+    </div>
+    <div class="card">
+      <div class="k">优化器</div>
+      <div class="s"><span class="path">sql/sql_optimizer.cc</span> · <span class="path">sql/join_optimizer/</span></div>
+      <div class="d">传统 join 枚举 + 超图优化器（hypergraph.cc），输出 AccessPath 计划树。</div>
+    </div>
+    <div class="card">
+      <div class="k">代价模型</div>
+      <div class="s"><span class="path">sql/join_optimizer/cost_model.cc</span></div>
+      <div class="d">行数 × 每行成本：基于 index dive 与统计估算访问路径代价。</div>
+    </div>
+    <div class="card">
+      <div class="k">执行器</div>
+      <div class="s"><span class="path">sql/sql_executor.cc</span> · <span class="path">sql/iterators/</span></div>
+      <div class="d">行迭代器：嵌套循环、hash join、排序、窗口函数逐行拉取。</div>
+    </div>
+    <div class="card">
+      <div class="k">统计与直方图</div>
+      <div class="s"><span class="path">sql/histograms/</span> · <span class="path">sql/dd/impl/tables/index_stats.cc</span></div>
+      <div class="d">列直方图与索引统计支撑优化器做选择率估计。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑥ 复制与高可用 ===== -->
+<section class="domain c6" id="d6">
+  <div class="domain-head">
+    <span class="domain-no">06</span>
+    <span class="domain-title">复制与高可用</span>
+    <span class="domain-en">REPLICATION &amp; HIGH AVAILABILITY</span>
+  </div>
+  <p class="domain-desc">复制基于 binlog 事件流：GTID 标记事务、IO/SQL 线程应用、半同步与组复制提供强一致与自动故障转移。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">GTID</div>
+      <div class="s"><span class="path">sql/rpl_gtid_*.cc</span></div>
+      <div class="d">全局事务标识：状态、执行、持久化（rpl_gtid_state / execution / persist）。</div>
+    </div>
+    <div class="card">
+      <div class="k">主从复制</div>
+      <div class="s"><span class="path">sql/rpl_source.cc</span> · <span class="path">sql/rpl_replica.cc</span> · <span class="path">sql/rpl_rli.cc</span></div>
+      <div class="d">binlog dump 线程、relay log 中继、IO 线程 + SQL 线程应用。</div>
+    </div>
+    <div class="card">
+      <div class="k">半同步复制</div>
+      <div class="s"><span class="path">plugin/semisync/</span></div>
+      <div class="d">主库等待至少一个从库确认 binlog 落盘后才提交，降低丢失窗口。</div>
+    </div>
+    <div class="card">
+      <div class="k">组复制 MGR</div>
+      <div class="s"><span class="path">plugin/group_replication/</span></div>
+      <div class="d">libmysqlgcs 自研组通信 + certification 冲突检测 + 分布式恢复。</div>
+    </div>
+    <div class="card">
+      <div class="k">并行复制</div>
+      <div class="s"><span class="path">sql/rpl_mta_submode.cc</span> · <span class="path">rpl_replica_commit_order_manager.cc</span></div>
+      <div class="d">MTS 多线程应用 + 提交顺序管理，保证从库与主库事务顺序一致。</div>
+    </div>
+    <div class="card">
+      <div class="k">MySQL Router</div>
+      <div class="s"><span class="path">router/</span></div>
+      <div class="d">读写分离、负载均衡与故障转移的路由层，独立产品随仓库发布。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑦ 管理与监控 ===== -->
+<section class="domain c7" id="d7">
+  <div class="domain-head">
+    <span class="domain-no">07</span>
+    <span class="domain-title">管理与监控</span>
+    <span class="domain-en">ADMINISTRATION &amp; MONITORING</span>
+  </div>
+  <p class="domain-desc">工程落地的支撑系统：数据字典统一元数据、权限认证保障安全、performance_schema 提供可观测性、字符集处理多语言排序。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">数据字典</div>
+      <div class="s"><span class="path">sql/dd/</span></div>
+      <div class="d">8.0 起元数据统一进 InnoDB 系统表（mysql.*），取代 .frm 文件，支持原子 DDL。</div>
+    </div>
+    <div class="card">
+      <div class="k">权限与认证</div>
+      <div class="s"><span class="path">sql/auth/</span></div>
+      <div class="d">auth_acls 权限位、acl_table_user 用户表、认证插件（caching_sha2_password）。</div>
+    </div>
+    <div class="card">
+      <div class="k">字符集与排序</div>
+      <div class="s"><span class="path">strings/ctype-*.cc</span></div>
+      <div class="d">utf8mb4、gbk 等实现与 UCA 排序规则，影响索引比较与字符串函数。</div>
+    </div>
+    <div class="card">
+      <div class="k">性能监控</div>
+      <div class="s"><span class="path">storage/perfschema/</span></div>
+      <div class="d">performance_schema：等待、阶段、语句、内存事件采集，351 个源文件。</div>
+    </div>
+    <div class="card">
+      <div class="k">连接管理</div>
+      <div class="s"><span class="path">sql/conn_handler/</span></div>
+      <div class="d">Per_thread（每连接一线程）与 One_thread 模型，连接生命周期。</div>
+    </div>
+    <div class="card">
+      <div class="k">资源组与分区</div>
+      <div class="s"><span class="path">sql/resourcegroups/</span> · <span class="path">sql/partitioning/</span></div>
+      <div class="d">线程绑定 CPU 的资源组；分区裁剪与分区的 handler 适配。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== MVCC 专题 ===== -->
+<section class="mvcc" id="mvcc">
+  <div class="wrap" style="padding:0;">
+    <div class="mvcc-title">MVCC 专题：快照读的可见性判定</div>
+    <p class="mvcc-sub">MySQL 隔离性的理论核心：ReadView 判定 + undo 版本链 + purge 清理。与锁的分工——MVCC 管快照读（SELECT 不加锁），锁系统管当前读（UPDATE/DELETE / FOR UPDATE）。</p>
+    <div class="mvcc-grid">
+      <div class="mvcc-box">
+        <h4>① 视图对象 ReadView</h4>
+        <ul>
+          <li><span class="m">m_creator_trx_id</span> · 创建者事务</li>
+          <li><span class="m">m_up_limit_id</span> · 视图建立时最小活跃事务 id</li>
+          <li><span class="m">m_low_limit_id</span> · 视图建立时 max_trx_id</li>
+          <li><span class="m">m_ids</span> · 活跃事务有序数组（二分查找）</li>
+          <li>源码：<span class="path">include/read0types.h</span></li>
+        </ul>
+      </div>
+      <div class="mvcc-box">
+        <h4>② 版本载体</h4>
+        <ul>
+          <li>聚簇索引记录带 <span class="m">trx_id + roll_ptr</span></li>
+          <li>roll_ptr → undo 记录 → 更旧版本：<span class="m">版本链</span></li>
+          <li>旧版本构造：<span class="m">row0vers.cc</span> row_vers_build_for_consistent_read</li>
+          <li>写路径：INSERT/UPDATE 写 undo（trx0undo.*）</li>
+        </ul>
+      </div>
+      <div class="mvcc-box">
+        <h4>③ 可见性判定算法</h4>
+        <div class="algo">changes_visible(id):
+  id &lt;  m_up_limit_id  → 可见（已提交）
+  id ==  m_creator_trx_id→ 可见（自己）
+  id &gt;= m_low_limit_id → 不可见（未提交）
+  否则 m_ids 二分查找    → 不在则可见</div>
+      </div>
+      <div class="mvcc-box">
+        <h4>④ 隔离级别落点</h4>
+        <ul>
+          <li><span class="m">READ_UNCOMMITTED</span> · 不建视图，读最新</li>
+          <li><span class="m">READ_COMMITTED</span> · 每条语句重建 ReadView</li>
+          <li><span class="m">REPEATABLE_READ</span> · 事务内复用首个视图</li>
+          <li><span class="m">SERIALIZABLE</span> · 普通读升级 LOCK_S 当前读</li>
+          <li>清理：trx0purge.cc 按最小活跃视图水位</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 阅读路径 ===== -->
+<section class="pathway" id="pathway">
+  <div class="wrap" style="padding:0;">
+    <div class="pathway-title">建议阅读路径</div>
+    <p class="pathway-sub">按依赖顺序组织：先内核（事务+日志），再性能（索引），再全链路（查询），最后扩展（复制）与管理。</p>
+    <div class="steps">
+      <div class="step">
+        <div class="no">1</div>
+        <h5>事务 + 日志 · ACID 内核</h5>
+        <p>trx0trx.h 状态机 → read0types.h changes_visible → log0log.* redo 与 log0recv.* 恢复</p>
+      </div>
+      <div class="step">
+        <div class="no">2</div>
+        <h5>索引 · 性能主线</h5>
+        <p>sql/key.h 描述 → range_optimizer/ 使用 → btr0btr/btr0cur B+树实现 → row0sel.cc 回表</p>
+      </div>
+      <div class="step">
+        <div class="no">3</div>
+        <h5>查询处理 · SQL 全链路</h5>
+        <p>sql_yacc.yy 解析 → sql_resolver.cc 语义 → join_optimizer/ 超图优化 → iterators/ 执行</p>
+      </div>
+      <div class="step">
+        <div class="no">4</div>
+        <h5>复制 · 高可用扩展</h5>
+        <p>rpl_gtid_* GTID → plugin/semisync/ 半同步 → plugin/group_replication/ 组复制</p>
+      </div>
+      <div class="step">
+        <div class="no">5</div>
+        <h5>管理 · 工程实践</h5>
+        <p>sql/dd/ 数据字典 → sql/auth/ 权限 → storage/perfschema/ 监控 → strings/ 字符集</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>MySQL Server 8.4.11 LTS · 源码仓库 <span class="path">C:\Repos\Study\Database\mysql-server</span></span>
+    <span>文件数为仓库实际扫描结果 · 供源码学习使用</span>
+  </div>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  var chips = Array.prototype.slice.call(document.querySelectorAll(".chip"));
+  var nodes = Array.prototype.slice.call(document.querySelectorAll(".graph .node"));
+  var targets = ["overview","d1","d2","d3","d4","d5","d6","d7","mvcc","pathway"];
+
+  function setActive(id){
+    chips.forEach(function(c){ c.classList.toggle("on", c.getAttribute("data-target") === id); });
+  }
+  function jump(id){
+    var el = document.getElementById(id);
+    if(el){ el.scrollIntoView({behavior:"smooth", block:"start"}); setActive(id); }
+  }
+  chips.forEach(function(c){
+    c.addEventListener("click", function(){ jump(c.getAttribute("data-target")); });
+  });
+  nodes.forEach(function(n){
+    n.addEventListener("click", function(){ jump(n.getAttribute("data-target")); });
+  });
+
+  var sections = targets.map(function(id){ return document.getElementById(id); });
+  if("IntersectionObserver" in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){ setActive(en.target.id); }
+      });
+    }, {rootMargin:"-20% 0px -70% 0px"});
+    sections.forEach(function(s){ if(s) io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>
