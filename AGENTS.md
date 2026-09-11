@@ -4,6 +4,7 @@
 
 ## AI 协作约定
 
-- 完成任务、写入文件后，自动执行 git 提交
+- 完成任务、写入文件后，自动执行 git 提交 (只提交本次自己修改的文件，不提交无关内容)
 - 提交信息用中文，遵循 conventional commits 规范（如 `docs: 更新 xx`、`chore: 更新 xx`）
-- 只提交本次自己修改的文件，不提交无关内容
+- 可以使用 codegraph mcp 来快速查询代码
+- 如果需要使用 Node 和 Python，请使用 Bun 和 uv
