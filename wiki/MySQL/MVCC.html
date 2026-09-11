@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MVCC 可见性判定 · MySQL Server 8.4 源码专题</title>
+<link rel="preconnect" href="https://miaoda.feishu.cn">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --bg:#0F141B; --bg2:#0B0F15; --panel:#151C26; --panel2:#1A2330; --panel3:#202B3B;
+  --line:rgba(148,163,184,.16); --line2:rgba(148,163,184,.28);
+  --text:#E6EDF3; --muted:#93A3B8; --faint:#6B7A90;
+  --accent:#4DD0E1; --accent2:#7C9CF5; --accent-dim:rgba(77,208,225,.12);
+  --ok:#5BD087; --no:#F26D6D; --warn:#F5B84C; --idle:#8B9BB4;
+  --mono:'JetBrains Mono','Consolas','Courier New',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth;overflow-x:clip}
+body{background:var(--bg);color:var(--text);font-family:'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased;overflow-x:clip}
+::selection{background:rgba(77,208,225,.25)}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+/* ===== 顶部导航 ===== */
+nav.top{position:sticky;top:0;z-index:50;background:rgba(15,20,27,.82);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+nav.top .bar{max-width:1120px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:14px;overflow-x:auto;scrollbar-width:none}
+nav.top .bar::-webkit-scrollbar{display:none}
+nav.top .brand{font-weight:700;font-size:14px;white-space:nowrap;color:var(--accent);letter-spacing:.5px}
+nav.top .brand em{font-style:normal;color:var(--text)}
+nav.top a.chip{display:inline-block;padding:5px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted);font-size:12.5px;text-decoration:none;white-space:nowrap;transition:all .18s}
+nav.top a.chip:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-dim)}
+
+/* ===== Hero ===== */
+header.hero{position:relative;overflow:hidden;padding:64px 0 56px;border-bottom:1px solid var(--line)}
+header.hero::before{content:"";position:absolute;inset:0;background:
+  radial-gradient(600px 300px at 15% 0%,rgba(77,208,225,.10),transparent 60%),
+  radial-gradient(500px 260px at 85% 20%,rgba(124,156,245,.10),transparent 60%);pointer-events:none}
+.hero .kicker{display:inline-flex;align-items:center;gap:8px;font-size:12px;letter-spacing:2.5px;color:var(--accent);font-weight:600;margin-bottom:18px}
+.hero .kicker::before{content:"";width:26px;height:1px;background:var(--accent)}
+.hero h1{font-size:44px;font-weight:900;line-height:1.2;letter-spacing:.5px}
+.hero h1 .grad{background:linear-gradient(90deg,#4DD0E1,#7C9CF5);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero .sub{margin:18px 0 32px;color:var(--muted);font-size:16px;max-width:760px}
+.hero .sub b{color:var(--text);font-weight:600}
+.pillars{display:flex;gap:16px;flex-wrap:wrap}
+.pillar{flex:1 1 220px;min-width:0;padding:16px 18px;background:linear-gradient(160deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:14px}
+.pillar .n{font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:1px}
+.pillar .t{font-weight:700;margin:6px 0 4px;font-size:15px}
+.pillar .d{color:var(--muted);font-size:13px}
+
+/* ===== 章节通用 ===== */
+section.block{padding:56px 0;border-bottom:1px solid var(--line)}
+.sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:12px}
+.sec-head .no{font-family:var(--mono);font-size:14px;color:var(--accent);font-weight:600;white-space:nowrap}
+.sec-head h2{font-size:26px;font-weight:900;letter-spacing:.3px}
+.sec-head .en{color:var(--faint);font-size:12px;letter-spacing:2px;text-transform:uppercase}
+.sec-lead{color:var(--muted);font-size:14.5px;max-width:860px;margin-bottom:26px}
+.sec-lead b{color:var(--text)}
+
+h3.subt{font-size:17px;font-weight:700;margin:28px 0 12px;padding-left:12px;border-left:3px solid var(--accent)}
+p.para{color:var(--muted);font-size:14.5px;margin-bottom:10px}
+p.para b{color:var(--text)}
+code.k{font-family:var(--mono);font-size:12.5px;background:var(--panel3);border:1px solid var(--line);border-radius:4px;padding:1px 6px;color:var(--accent2)}
+
+/* 源码路径 */
+.srcpath{font-family:var(--mono);font-size:12px;color:var(--muted);background:rgba(124,156,245,.08);border:1px solid rgba(124,156,245,.18);border-radius:6px;padding:2px 8px;display:inline-block;margin:2px 4px 2px 0}
+
+/* 表格 */
+.tbl-wrap{overflow-x:auto;margin:16px 0}
+table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;margin:0}
+table.tbl th{background:var(--panel2);color:var(--accent);text-align:left;font-weight:600;padding:10px 12px;border:1px solid var(--line);font-size:12.5px;letter-spacing:.5px}
+table.tbl td{padding:9px 12px;border:1px solid var(--line);color:var(--muted);vertical-align:top}
+table.tbl td b{color:var(--text);font-weight:600}
+table.tbl tr:hover td{background:rgba(77,208,225,.04)}
+table.tbl td .mono,table.tbl th .mono{font-family:var(--mono);font-size:12px}
+
+/* 代码块 */
+pre.code{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.7;margin:14px 0;color:#C9D6E3}
+pre.code .c{color:#5A6B80}pre.code .kw{color:#7C9CF5}pre.code .fn{color:#4DD0E1}pre.code .st{color:#B8E986}pre.code .num{color:#F5B84C}
+pre.code .hl{background:rgba(245,184,76,.12);display:inline-block;width:100%}
+
+/* 提示条 */
+.note{display:flex;gap:10px;padding:12px 16px;border-radius:10px;background:var(--accent-dim);border:1px solid rgba(77,208,225,.25);font-size:13.5px;color:var(--muted);margin:16px 0}
+.note b{color:var(--accent)}
+.note.warn{background:rgba(245,184,76,.08);border-color:rgba(245,184,76,.3)}
+.note.warn b{color:var(--warn)}
+.note.red{background:rgba(242,109,109,.07);border-color:rgba(242,109,109,.28)}
+.note.red b{color:var(--no)}
+
+/* ===== 组件协作 ===== */
+.comp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin:20px 0}
+.comp{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+.comp .tag{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:1.5px;color:var(--bg);background:var(--accent);border-radius:4px;padding:1px 8px;font-weight:600}
+.comp h4{font-size:15px;font-weight:700;margin:10px 0 8px}
+.comp p{color:var(--muted);font-size:13px}
+.comp .kv{font-family:var(--mono);font-size:12px;background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-top:10px;line-height:1.9;color:#C9D6E3}
+.comp .kv .hl{color:var(--accent)}.comp .kv .hl2{color:var(--warn)}
+.flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:22px 0 6px}
+.flow .step{flex:1 1 150px;min-width:0;background:var(--panel2);border:1px solid var(--line2);border-radius:10px;padding:10px 12px;font-size:12.5px;color:var(--muted);text-align:center}
+.flow .step b{display:block;color:var(--text);font-size:13px;margin-bottom:2px}
+.flow .arrow{color:var(--accent);font-family:var(--mono);font-size:16px;flex:0 0 auto}
+
+/* 版本链 SVG 容器 */
+.chain{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin:18px 0;overflow-x:auto}
+.chain svg{display:block;width:100%;min-width:640px;height:auto}
+.chain .cap{font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-top:8px}
+
+/* ===== 判定算法 ===== */
+.axis{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;margin:16px 0;overflow-x:auto}
+.axis svg{display:block;width:100%;min-width:640px;height:auto}
+.legend{display:flex;gap:18px;flex-wrap:wrap;margin:10px 0 4px;font-size:12.5px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin:18px 0}
+.stepcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;position:relative}
+.stepcard .sno{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:600}
+.stepcard h5{font-size:14px;font-weight:700;margin:6px 0 6px}
+.stepcard p{font-size:12.5px;color:var(--muted)}
+.stepcard .cond{font-family:var(--mono);font-size:12px;background:var(--bg2);border-radius:6px;padding:6px 9px;margin:8px 0 6px;color:#C9D6E3;border:1px solid var(--line)}
+.stepcard .res{font-size:12.5px;font-weight:600}
+.stepcard .res.ok{color:var(--ok)}.stepcard .res.no{color:var(--no)}
+
+/* ===== 交互演练 ===== */
+.demo{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);border-radius:16px;padding:22px;margin:18px 0}
+.demo .rv{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 18px}
+.rv-item{flex:1 1 130px;min-width:0;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.rv-item .lbl{font-size:11px;color:var(--faint);letter-spacing:1px;font-family:var(--mono)}
+.rv-item .val{font-family:var(--mono);font-size:16px;color:var(--accent);font-weight:600;margin-top:2px}
+.rv-item .val.alt{color:var(--warn)}
+.rv-item .desc{font-size:11.5px;color:var(--muted);margin-top:2px}
+.demo .btns{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.demo .btns button{flex:1 1 96px;min-width:0;padding:10px 8px;border-radius:10px;border:1px solid var(--line2);background:var(--panel3);color:var(--text);font-size:13.5px;font-family:var(--mono);cursor:pointer;transition:all .15s;font-weight:600}.demo .btns button:hover{border-color:var(--accent);color:var(--accent)}
+.demo .btns button.done{opacity:.45;cursor:default}
+.demo .btns button.hit-ok{border-color:var(--ok);color:var(--ok);background:rgba(92,208,135,.1)}
+.demo .btns button.hit-no{border-color:var(--no);color:var(--no);background:rgba(242,109,109,.1)}
+.demo .out{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:14px 16px;font-family:var(--mono);font-size:12.5px;line-height:1.9;min-height:88px;color:#C9D6E3}
+.demo .out .ok{color:var(--ok)}.demo .out .no{color:var(--no)}.demo .out .w{color:var(--warn)}.demo .out .hl{color:var(--accent)}
+.demo .out .dim{color:#5A6B80}
+.demo .reset{margin-top:12px;padding:7px 16px;border-radius:8px;border:1px solid var(--line2);background:transparent;color:var(--muted);font-size:12.5px;cursor:pointer;font-family:inherit}
+.demo .reset:hover{color:var(--accent);border-color:var(--accent)}
+
+/* 时间线 */
+.timeline{position:relative;margin:22px 0 6px;padding-left:26px}
+.timeline::before{content:"";position:absolute;left:8px;top:6px;bottom:6px;width:2px;background:linear-gradient(180deg,var(--accent),rgba(77,208,225,.15))}
+.tl-item{position:relative;padding:0 0 22px 10px}
+.tl-item::before{content:"";position:absolute;left:-24px;top:6px;width:10px;height:10px;border-radius:50%;background:var(--bg);border:2px solid var(--accent)}
+.tl-item h4{font-size:14.5px;font-weight:700;color:var(--text)}
+.tl-item .t{font-family:var(--mono);font-size:11.5px;color:var(--faint);letter-spacing:1px}
+.tl-item p{color:var(--muted);font-size:13.5px;margin-top:3px}
+
+/* 对照卡 */
+.cmp{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin:18px 0}
+.cmp .side{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+.cmp .side.cur{border-color:rgba(242,109,109,.35)}
+.cmp .side.snap{border-color:rgba(92,208,135,.35)}
+.cmp .side h4{font-size:15px;font-weight:700;margin-bottom:8px}
+.cmp .side.snap h4{color:var(--ok)}.cmp .side.cur h4{color:var(--no)}
+.cmp .side p{font-size:13px;color:var(--muted)}
+.cmp .side ul{list-style:none;margin-top:10px}
+.cmp .side li{font-size:12.5px;color:var(--muted);padding:5px 0;border-bottom:1px dashed var(--line)}
+.cmp .side li:last-child{border-bottom:none}
+.cmp .side li b{color:var(--text)}
+
+/* FAQ */
+.faq-item{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:12px}
+.faq-item .q{font-size:14.5px;font-weight:700;color:var(--accent)}
+.faq-item .a{font-size:13.5px;color:var(--muted);margin-top:6px}
+.faq-item .a b{color:var(--text)}
+
+footer{padding:36px 0 44px;color:var(--faint);font-size:12.5px;text-align:center}
+footer .back{display:inline-block;margin-top:10px;color:var(--accent);text-decoration:none;font-size:13px;border:1px solid rgba(77,208,225,.35);padding:6px 16px;border-radius:999px}
+footer .back:hover{background:var(--accent-dim)}
+
+@media (max-width:640px){
+  .hero h1{font-size:30px}
+  section.block{padding:40px 0}
+  .sec-head h2{font-size:21px}
+  .sec-head{flex-wrap:wrap;gap:6px}
+  .demo .btns button{flex:1 1 44%}
+  nav.top a.chip{min-height:44px;display:inline-flex;align-items:center;padding:6px 14px;font-size:13px}
+  .demo .reset{min-height:44px}
+  .demo .btns button{min-height:44px}
+  footer .back{min-height:44px;display:inline-flex;align-items:center}
+  code.k{white-space:normal;word-break:break-all}
+  .comp p,.pillar .d,p.para,.faq-item .a{font-size:14px}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 顶部导航 ===== -->
+<nav class="top"><div class="bar">
+  <span class="brand">MVCC<em> 专题</em></span>
+  <a class="chip" href="#overview">概览</a>
+  <a class="chip" href="#components">组件协作</a>
+  <a class="chip" href="#visibility">判定算法</a>
+  <a class="chip" href="#demo">交互演练</a>
+  <a class="chip" href="#snapshot">快照生命周期</a>
+  <a class="chip" href="#isolation">隔离级别</a>
+  <a class="chip" href="#sourcemap">源码地图</a>
+  <a class="chip" href="#faq">面试速答</a>
+</div></nav>
+
+<!-- ===== Hero ===== -->
+<header class="hero" id="overview"><div class="wrap">
+  <div class="kicker">MYSQL INNODB · MULTI-VERSION CONCURRENCY CONTROL · 8.4</div>
+  <h1>MVCC：用「版本」换「并发」<br><span class="grad">可见性判定 —— 隔离性的理论核心</span></h1>
+  <p class="sub">MVCC（多版本并发控制）是 InnoDB 实现隔离级别的基石：<b>快照读不加锁、不互等</b>，而是为每次读建立一份<b>一致性视图（ReadView）</b>，沿记录的<b>版本链</b>挑出"对自己可见"的那个版本。理解 MVCC，就是理解<b>组件怎么协作</b>、<b>可见性怎么判定</b>这两件事。</p>
+  <div class="pillars">
+    <div class="pillar"><div class="n">01 · SNAPSHOT READ</div><div class="t">快照读不加锁</div><div class="d">普通 SELECT 走一致性读，不申请行锁，与写并发互不阻塞。</div></div>
+    <div class="pillar"><div class="n">02 · VERSION CHAIN</div><div class="t">一行多个版本</div><div class="d">每次更新不覆盖旧值，旧版本写入 undo log，由 DB_ROLL_PTR 串成链。</div></div>
+    <div class="pillar"><div class="n">03 · READ VIEW</div><div class="t">一致性视图判定</div><div class="d">ReadView 的四要素（上/下水位、活跃列表、创建者）决定每个版本可见与否。</div></div>
+  </div>
+</div></header>
+
+<!-- ===== 01 直观理解 ===== -->
+<section class="block"><div class="wrap">
+  <div class="sec-head"><span class="no">01</span><h2>先直观理解：一条记录的"时光轴"</h2><span class="en">INTUITION</span></div>
+  <p class="sec-lead">MVCC 的核心思想一句话：<b>读请求不等待写请求</b>。写的人只管往"时间轴"上追加新版本，读的人拿一份"快照清单"，沿时间轴找到对自己可见的那个版本。双方各读各的，永不互相阻塞。</p>
+  <div class="chain">
+    <svg viewBox="0 0 1080 210" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="版本链示意图">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4DD0E1"/></marker>
+        <linearGradient id="vgrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1A2330"/><stop offset="1" stop-color="#151C26"/></linearGradient>
+      </defs>
+      <!-- 时间轴 -->
+      <line x1="60" y1="150" x2="1020" y2="150" stroke="#2A3850" stroke-width="2"/>
+      <text x="60" y="132" fill="#6B7A90" font-size="12" font-family="'JetBrains Mono',monospace">t0</text>
+      <text x="420" y="132" fill="#6B7A90" font-size="12" font-family="'JetBrains Mono',monospace">t1</text>
+      <text x="780" y="132" fill="#6B7A90" font-size="12" font-family="'JetBrains Mono',monospace">t2</text>
+      <text x="950" y="132" fill="#6B7A90" font-size="12" font-family="'JetBrains Mono',monospace">现在</text>
+      <!-- v1 -->
+      <g>
+        <rect x="90" y="95" width="170" height="58" rx="10" fill="url(#vgrad)" stroke="#4DD0E1" stroke-width="1.5"/>
+        <text x="105" y="118" fill="#E6EDF3" font-size="13" font-weight="600">v1 · 由事务 9 写入</text>
+        <text x="105" y="140" fill="#93A3B8" font-size="11.5" font-family="'JetBrains Mono',monospace">DB_TRX_ID = 9</text>
+      </g>
+      <!-- v2 -->
+      <g>
+        <rect x="360" y="95" width="170" height="58" rx="10" fill="url(#vgrad)" stroke="#7C9CF5" stroke-width="1.5"/>
+        <text x="375" y="118" fill="#E6EDF3" font-size="13" font-weight="600">v2 · 由事务 18 写入</text>
+        <text x="375" y="140" fill="#93A3B8" font-size="11.5" font-family="'JetBrains Mono',monospace">DB_TRX_ID = 18</text>
+      </g>
+      <!-- v3 -->
+      <g>
+        <rect x="650" y="95" width="190" height="58" rx="10" fill="url(#vgrad)" stroke="#F26D6D" stroke-width="1.5"/>
+        <text x="665" y="118" fill="#E6EDF3" font-size="13" font-weight="600">v3 · 由事务 25 写入</text>
+        <text x="665" y="140" fill="#93A3B8" font-size="11.5" font-family="'JetBrains Mono',monospace">DB_TRX_ID = 25</text>
+        <text x="665" y="158" fill="#F26D6D" font-size="11" font-family="'JetBrains Mono',monospace">← 当前最新版本</text>
+      </g>
+      <!-- 回滚指针 -->
+      <line x1="262" y1="124" x2="352" y2="124" stroke="#4DD0E1" stroke-width="1.6" marker-end="url(#arr)"/>
+      <line x1="532" y1="124" x2="642" y2="124" stroke="#4DD0E1" stroke-width="1.6" marker-end="url(#arr)"/>
+      <text x="292" y="112" fill="#6B7A90" font-size="11" font-family="'JetBrains Mono',monospace">DB_ROLL_PTR</text>
+      <text x="556" y="112" fill="#6B7A90" font-size="11" font-family="'JetBrains Mono',monospace">DB_ROLL_PTR</text>
+      <!-- 读视角 -->
+      <g>
+        <rect x="120" y="172" width="280" height="30" rx="8" fill="rgba(92,208,135,.10)" stroke="rgba(92,208,135,.4)" stroke-dasharray="4 3"/>
+        <text x="136" y="192" fill="#5BD087" font-size="12">事务 A 的视图（快照停在 t0）</text>
+      </g>
+      <g>
+        <rect x="480" y="172" width="280" height="30" rx="8" fill="rgba(242,109,109,.08)" stroke="rgba(242,109,109,.4)" stroke-dasharray="4 3"/>
+        <text x="496" y="192" fill="#F26D6D" font-size="12">事务 B 的视图（快照停在 t2）</text>
+      </g>
+      <text x="60" y="203" fill="#6B7A90" font-size="11.5" font-family="'JetBrains Mono',monospace">A 看到 v1，B 看到 v3 —— 同一行、同一时刻，不同事务读到不同版本，互不阻塞</text>
+    </svg>
+    <div class="cap">图 1 · 版本链（时间轴视角）：每次更新把旧版本压入 undo log，新版本通过 DB_ROLL_PTR 指回旧版本；读请求按自己的 ReadView 决定停在链上哪个版本。</div>
+  </div>
+  <div class="note"><b>两个前提概念</b> —— <b>快照读（一致性读）</b>：普通 <code class="k">SELECT</code>，不加锁，靠 ReadView + 版本链构造可见结果；<b>当前读（锁定读）</b>：<code class="k">SELECT ... FOR UPDATE / LOCK IN SHARE MODE</code>、<code class="k">UPDATE</code>、<code class="k">DELETE</code>，读最新版本并加锁。MVCC 只管前者，后者交给锁系统（next-key lock 等）。</div>
+</div></section>
+
+<!-- ===== 02 组件协作 ===== -->
+<section class="block" id="components"><div class="wrap">
+  <div class="sec-head"><span class="no">02</span><h2>三大组件如何协作</h2><span class="en">COMPONENTS & COLLABORATION</span></div>
+  <p class="sec-lead">MVCC 不是单个机制，而是 <b>隐藏列 + undo 版本链 + ReadView</b> 三个组件的协同：写路径负责<b>造版本</b>，读路径负责<b>选版本</b>，purge 线程负责<b>清旧版本</b>。</p>
+
+  <div class="comp-grid">
+    <div class="comp"><span class="tag">A · DATA RECORD</span>
+      <h4>聚簇索引记录 + 隐藏列</h4>
+      <p>InnoDB 聚簇索引的每行记录，除用户列外还携带两个系统隐藏列：<b>DB_TRX_ID</b>（本版本由哪个事务写入）与 <b>DB_ROLL_PTR</b>（指向 undo log 中的旧版本）。版本号就是事务 id，全局单调递增。</p>
+      <div class="kv">row { id=7, name=<span class="hl2">'alice'</span><br>&nbsp;&nbsp;<span class="hl">DB_TRX_ID=18</span>, <span class="hl2">DB_ROLL_PTR→undo#8</span> }</div>
+    </div>
+    <div class="comp"><span class="tag">B · UNDO LOG</span>
+      <h4>undo 版本链</h4>
+      <p>旧版本的数据不在数据页里，而存在 undo log 中（逻辑逆操作 + 旧值）。<b>insert undo</b> 只用于回滚（行删除后即断链），<b>update undo</b> 承载版本链，链头被 DB_ROLL_PTR 引用。</p>
+      <div class="kv">TRX_UNDO_INSERT_REC = <span class="hl2">11</span><br>TRX_UNDO_UPD_EXIST_REC = <span class="hl2">12</span><br>TRX_UNDO_UPD_DEL_REC = <span class="hl2">13</span></div>
+    </div>
+    <div class="comp"><span class="tag">C · READ VIEW</span>
+      <h4>一致性视图（ReadView）</h4>
+      <p>创建快照那一刻，把全局活跃事务快照下来：上水位、下水位、活跃列表、创建者。它是判定"某版本可见与否"的唯一裁判。</p>
+      <div class="kv">m_up_limit_id&nbsp;&nbsp;= <span class="hl2">10</span><br>m_low_limit_id&nbsp;= <span class="hl2">30</span><br>m_ids&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= [12,17,20]<br>m_creator_trx_id = <span class="hl2">15</span></div>
+    </div>
+  </div>
+
+  <h3 class="subt">读路径：沿版本链"挑版本"</h3>
+  <div class="flow">
+    <div class="step"><b>定位记录</b>取出聚簇索引当前版本，读 DB_TRX_ID</div><span class="arrow">→</span>
+    <div class="step"><b>判定可见性</b>ReadView.changes_visible(trx_id)</div><span class="arrow">→</span>
+    <div class="step"><b>可见？</b>是 → 直接返回该版本</div><span class="arrow">→</span>
+    <div class="step"><b>不可见？</b>沿 DB_ROLL_PTR 取上一版本，回到第 2 步</div><span class="arrow">→</span>
+    <div class="step"><b>链走完仍不可见</b>行对当前事务不可见（跳过）</div>
+  </div>
+  <p class="para">在源码中，这个"沿链找可见版本"的过程由 <span class="srcpath">row/row0sel.cc</span> 的 <code class="k">row_sel_build_prev_vers_for_mysql()</code> 完成：每拿到一个旧版本，先经 <code class="k">changes_visible()</code> 判定，不满足就继续向链头回溯；<code class="k">row_vers_old_has_index_entry()</code>（<span class="srcpath">row/row0vers.cc</span>）则负责判断旧版本在二级索引中是否有对应入口（用于覆盖索引/ICP 场景）。</p>
+
+  <h3 class="subt">写路径：只追加，不覆盖</h3>
+  <div class="flow">
+    <div class="step"><b>拷贝旧值</b>把当前版本写到 undo log，生成 undo 记录</div><span class="arrow">→</span>
+    <div class="step"><b>更新隐藏列</b>DB_TRX_ID = 本事务 id</div><span class="arrow">→</span>
+    <div class="step"><b>挂接链条</b>DB_ROLL_PTR 指向刚写的 undo 旧版本</div><span class="arrow">→</span>
+    <div class="step"><b>等 purge</b>旧版本保留，直到所有视图不再需要它</div>
+  </div>
+  <div class="note"><b>purge 的"水位"</b> —— <span class="srcpath">trx/trx0purge.cc</span> 的清理线程以<b>全局最老的活跃 ReadView</b> 为水位：水位之下的旧版本已不可能被任何活跃视图读到，可以物理删除。这就是"长事务拖垮 undo"的根源：视图老，purge 不敢动手。</div>
+</div></section>
+
+<!-- ===== 03 判定算法 ===== -->
+<section class="block" id="visibility"><div class="wrap">
+  <div class="sec-head"><span class="no">03</span><h2>可见性判定：两个水位 + 一次二分</h2><span class="en">CHANGES_VISIBLE ALGORITHM</span></div>
+  <p class="sec-lead">判定一个版本是否可见，本质是把<b>它的写入事务 id</b> 放进 <b>ReadView 的坐标系</b>里对号入座。坐标系由两个水位划出三个区，再加上活跃列表的二分查找，O(log n) 内完成。</p>
+
+  <div class="legend">
+    <span><i style="background:rgba(92,208,135,.7)"></i>可见区：事务已提交，必见</span>
+    <span><i style="background:rgba(245,184,76,.8)"></i>活跃区：需要查活跃列表 m_ids</span>
+    <span><i style="background:rgba(242,109,109,.7)"></i>不可见区：未来事务，必不见</span>
+    <span><i style="background:#4DD0E1"></i>m_ids 中的活跃事务（打点）</span>
+  </div>
+  <div class="axis">
+    <svg viewBox="0 0 1080 190" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ReadView 水位数轴">
+      <!-- 数轴 -->
+      <line x1="70" y1="110" x2="1010" y2="110" stroke="#2A3850" stroke-width="2"/>
+      <!-- 可见区 -->
+      <rect x="70" y="92" width="290" height="36" rx="6" fill="rgba(92,208,135,.08)" stroke="rgba(92,208,135,.4)"/>
+      <text x="200" y="80" fill="#5BD087" font-size="12.5" font-weight="600" text-anchor="middle">事务 id &lt; m_up_limit_id（已提交）→ 可见</text>
+      <!-- 活跃区 -->
+      <rect x="360" y="92" width="380" height="36" rx="6" fill="rgba(245,184,76,.07)" stroke="rgba(245,184,76,.4)"/>
+      <text x="550" y="80" fill="#F5B84C" font-size="12.5" font-weight="600" text-anchor="middle">m_up_limit_id ≤ id &lt; m_low_limit_id（灰色地带）→ 查 m_ids</text>
+      <!-- 不可见区 -->
+      <rect x="740" y="92" width="270" height="36" rx="6" fill="rgba(242,109,109,.07)" stroke="rgba(242,109,109,.4)"/>
+      <text x="875" y="80" fill="#F26D6D" font-size="12.5" font-weight="600" text-anchor="middle">id ≥ m_low_limit_id（未来）→ 不可见</text>
+      <!-- 刻度 -->
+      <text x="70" y="140" fill="#6B7A90" font-size="11.5" font-family="'JetBrains Mono',monospace">0</text>
+      <line x1="360" y1="106" x2="360" y2="114" stroke="#F5B84C" stroke-width="2"/>
+      <text x="360" y="140" fill="#F5B84C" font-size="11.5" font-family="'JetBrains Mono',monospace" text-anchor="middle">m_up_limit_id=10</text>
+      <line x1="740" y1="106" x2="740" y2="114" stroke="#F26D6D" stroke-width="2"/>
+      <text x="740" y="140" fill="#F26D6D" font-size="11.5" font-family="'JetBrains Mono',monospace" text-anchor="middle">m_low_limit_id=30</text>
+      <!-- 活跃打点 -->
+      <circle cx="440" cy="110" r="5" fill="#4DD0E1"/><text x="440" y="166" fill="#4DD0E1" font-size="11" font-family="'JetBrains Mono',monospace" text-anchor="middle">12</text>
+      <circle cx="560" cy="110" r="5" fill="#4DD0E1"/><text x="560" y="166" fill="#4DD0E1" font-size="11" font-family="'JetBrains Mono',monospace" text-anchor="middle">17</text>
+      <circle cx="640" cy="110" r="5" fill="#4DD0E1"/><text x="640" y="166" fill="#4DD0E1" font-size="11" font-family="'JetBrains Mono',monospace" text-anchor="middle">20</text>
+      <text x="905" y="166" fill="#5A6B80" font-size="11" font-family="'JetBrains Mono',monospace">∞ 未来</text>
+      <!-- 创建者 -->
+      <circle cx="490" cy="110" r="5" fill="#E6EDF3"/>
+      <text x="490" y="166" fill="#E6EDF3" font-size="11" font-family="'JetBrains Mono',monospace" text-anchor="middle">creator=15</text>
+    </svg>
+  </div>
+  <p class="para">读法：<b>m_up_limit_id</b> 是创建视图时活跃事务集合中最小的 id —— 比它还小的 id 必然已提交，直接可见；<b>m_low_limit_id</b> 是下一个待分配的事务号 —— 达到它的 id 必然还没开始，直接不可见；<b>两个水位之间的 id</b> 是否可见，取决于它是否还在活跃列表 <code class="k">m_ids</code> 里。</p>
+
+  <h3 class="subt">判定四步（与源码逐行对应）</h3>
+  <div class="steps">
+    <div class="stepcard"><div class="sno">STEP 1 · 快路径</div><h5>已提交 或 自己</h5><div class="cond">id &lt; m_up_limit_id<br>|| id == m_creator_trx_id</div><p>比上水位小的必已提交；创建者自己的写入必然可见。</p><div class="res ok">→ 可见</div></div>
+    <div class="stepcard"><div class="sno">STEP 2 · 未来事务</div><h5>下水位之外</h5><div class="cond">id ≥ m_low_limit_id</div><p>达到下水位的 id 在视图创建时尚未分配，属于"未来事务"。</p><div class="res no">→ 不可见</div></div>
+    <div class="stepcard"><div class="sno">STEP 3 · 无活跃</div><h5>活跃列表为空</h5><div class="cond">m_ids.empty()</div><p>灰色地带没有活跃事务，则中间 id 全部已提交。</p><div class="res ok">→ 可见</div></div>
+    <div class="stepcard"><div class="sno">STEP 4 · 二分查找</div><h5>是否在活跃列表中</h5><div class="cond">binary_search(m_ids, id)</div><p>m_ids 有序，二分 O(log n)。不在列表中 = 已提交。</p><div class="res ok">→ 可见（在列表中则不可见）</div></div>
+  </div>
+
+  <h3 class="subt">源码直读：read0types.h 的 changes_visible()</h3>
+<pre class="code"><span class="c">// storage/innobase/include/read0types.h:163</span>
+<span class="kw">bool</span> <span class="fn">changes_visible</span>(trx_id_t id, <span class="kw">const</span> table_name_t &name) <span class="kw">const</span> {
+  ut_ad(id &gt; <span class="num">0</span>);
+  <span class="c">// STEP 1：上水位以下（必已提交）或创建者自己 → 可见</span>
+  <span class="kw">if</span> (id &lt; m_up_limit_id || id == m_creator_trx_id) {
+    <span class="kw">return</span> (<span class="kw">true</span>);
+  }
+  check_trx_id_sanity(id, name);
+  <span class="c">// STEP 2：达到下水位（未来事务）→ 不可见</span>
+  <span class="kw">if</span> (id &gt;= m_low_limit_id) {
+    <span class="kw">return</span> (<span class="kw">false</span>);
+  } <span class="kw">else if</span> (m_ids.empty()) {
+    <span class="c">// STEP 3：灰色地带无活跃事务 → 可见</span>
+    <span class="kw">return</span> (<span class="kw">true</span>);
+  }
+  <span class="c">// STEP 4：有序数组二分查找，不在活跃列表 → 已提交，可见</span>
+  <span class="kw">const</span> ids_t::value_type *p = m_ids.data();
+  <span class="kw">return</span> (!std::binary_search(p, p + m_ids.size(), id));
+}</pre>
+  <div class="note warn"><b>容易踩的坑</b> —— 三个边界语义：① <code class="k">m_up_limit_id</code> 取的是<b>活跃事务中最小的 id</b>，不是"当前最大已提交 id"；② <code class="k">m_low_limit_id</code> 是<b>下一个待分配号</b>，所以用 <code class="k">&gt;=</code> 判不可见；③ 灰色地带里已提交的事务（如 id=25）虽然"时间上晚于视图创建"，但它提交了就不在 m_ids 里 —— 这正是 <b>RC 下"每次语句都能看到最新已提交"</b>的机制来源。</div>
+</div></section>
+
+<!-- ===== 04 交互演练 ===== -->
+<section class="block" id="demo"><div class="wrap">
+  <div class="sec-head"><span class="no">04</span><h2>交互演练：当一次判定发生</h2><span class="en">VISIBILITY PLAYGROUND</span></div>
+  <p class="sec-lead">下面复刻一个真实的 ReadView，逐个"提交"候选事务 id，看 <code class="k">changes_visible()</code> 每一步怎么走。这正是面试手撕 MVCC 的常见场景。</p>
+
+  <div class="demo">
+    <div class="rv">
+      <div class="rv-item"><div class="lbl">m_up_limit_id</div><div class="val">10</div><div class="desc">活跃中最小 id</div></div>
+      <div class="rv-item"><div class="lbl">m_low_limit_id</div><div class="val alt">30</div><div class="desc">下一个待分配号</div></div>
+      <div class="rv-item"><div class="lbl">m_creator_trx_id</div><div class="val alt">15</div><div class="desc">本视图创建者</div></div>
+      <div class="rv-item"><div class="lbl">m_ids（活跃）</div><div class="val">[12, 17, 20]</div><div class="desc">创建视图瞬间的快照</div></div>
+    </div>
+    <div class="btns" id="txns">
+      <button data-id="8" title="小于上水位">id = 8</button>
+      <button data-id="10" title="恰好等于上水位">id = 10</button>
+      <button data-id="12" title="活跃列表中">id = 12</button>
+      <button data-id="15" title="视图创建者自己">id = 15</button>
+      <button data-id="17" title="活跃列表中">id = 17</button>
+      <button data-id="20" title="活跃列表中">id = 20</button>
+      <button data-id="25" title="灰色地带、已提交">id = 25</button>
+      <button data-id="30" title="恰好等于下水位">id = 30</button>
+      <button data-id="31" title="未来事务">id = 31</button>
+    </div>
+    <div class="out" id="out">点击上方任意事务 id，逐步演示 changes_visible() 的判定路径。</div>
+    <button class="reset" id="reset">重新开始</button>
+  </div>
+
+  <div class="note"><b>从演练中读出的规律</b> —— id=8/10 直接命中 STEP 1；id=12/17/20 在活跃列表里，STEP 4 判"不可见"；id=15 是自己，特判可见；id=25 提交了就不在列表里，可见 —— 哪怕它晚于视图创建；id=30/31 是未来事务，STEP 2 直接不可见。用这套规律去套任何隔离级别场景，都不会错。</div>
+</div></section>
+
+<!-- ===== 05 快照生命周期 ===== -->
+<section class="block" id="snapshot"><div class="wrap">
+  <div class="sec-head"><span class="no">05</span><h2>快照的诞生与生命周期</h2><span class="en">SNAPSHOT LIFECYCLE</span></div>
+  <p class="sec-lead">ReadView 不是一直存在，而是在<b>第一条一致性读语句</b>执行时由 <code class="k">trx_assign_read_view()</code>（<span class="srcpath">trx/trx0trx.cc:2319</span>）创建，并随隔离级别决定<b>活多久</b>。这正是 RC 与 RR 行为差异的全部秘密。</p>
+
+  <div class="timeline">
+    <div class="tl-item"><span class="t">T0 · BEGIN</span><h4>事务开始，还没有任何视图</h4><p>写事务才分配 trx_id；纯快照读事务在创建视图时才取号。</p></div>
+    <div class="tl-item"><span class="t">T1 · 第一条 SELECT</span><h4>trx_assign_read_view() 创建 ReadView</h4><p>快照当前全局活跃事务（trx_sys 的读写事务链表），算出上/下水位与活跃列表，存入 <code class="k">trx-&gt;read_view</code>。</p></div>
+    <div class="tl-item"><span class="t">T1 → Tn · RR</span><h4>REPEATABLE READ：视图保持到事务结束</h4><p>之后所有一致性读<b>复用同一视图</b>，所以同一事务内多次读到同一快照 —— 可重复读成立。</p></div>
+    <div class="tl-item"><span class="t">每条语句 · RC</span><h4>READ COMMITTED：每条语句重建视图</h4><p>语句结束时视图即释放，下一条语句创建新视图 —— 每次都能看到"最新已提交"，出现不可重复读。</p></div>
+    <div class="tl-item"><span class="t">Tn · COMMIT / ROLLBACK</span><h4>视图随事务释放</h4><p>视图销毁后，被它"护住"的旧版本失去保护，purge 水位前进，逐步物理清理。</p></div>
+  </div>
+
+  <h3 class="subt">快照读 vs 当前读：MVCC 与锁的分工</h3>
+  <div class="cmp">
+    <div class="side snap"><h4>快照读（一致性读）</h4>
+      <p>SELECT（不带 FOR UPDATE / LOCK IN SHARE MODE），也包含部分 DML 的"读旧值"环节。</p>
+      <ul><li><b>不加锁</b>，不参与锁等待，读永不阻塞写</li><li>走 <b>ReadView + 版本链</b>，由 changes_visible 选版本</li><li>RU 直接读最新版本（无视图）；RC 语句级视图；RR 事务级视图</li></ul>
+    </div>
+    <div class="side cur"><h4>当前读（锁定读）</h4>
+      <p>SELECT ... FOR UPDATE / LOCK IN SHARE MODE、UPDATE、DELETE、INSERT。</p>
+      <ul><li><b>必须加锁</b>（LOCK_S / LOCK_X、next-key lock），读最新已提交版本</li><li>MVCC 不参与，走 <span class="srcpath">lock/lock0lock.*</span> 的锁系统</li><li>RR 下靠 <b>next-key lock（临键锁）</b> 防止当前读的幻读</li></ul>
+    </div>
+  </div>
+  <div class="note"><b>面试常考点</b> —— "MVCC 解决了幻读吗？"准确回答：<b>快照读</b>场景下 RR 靠固定视图天然无幻读；<b>当前读</b>场景下靠 next-key lock。二者合起来，才是 MySQL 的 RR 隔离级别的完整语义。</div>
+</div></section>
+
+<!-- ===== 06 隔离级别 ===== -->
+<section class="block" id="isolation"><div class="wrap">
+  <div class="sec-head"><span class="no">06</span><h2>四个隔离级别在源码中的落点</h2><span class="en">ISOLATION LEVELS</span></div>
+  <p class="sec-lead">隔离级别枚举定义在 SQL 层 <span class="srcpath">sql/handler.h:3186</span>：<code class="k">ISO_READ_UNCOMMITTED / ISO_READ_COMMITTED / ISO_REPEATABLE_READ / ISO_SERIALIZABLE</code>。级别越高，MVCC 让位越多、锁介入越多。</p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <tr><th>隔离级别</th><th>快照策略</th><th>读行为</th><th>副作用</th><th>关键机制</th></tr>
+    <tr><td><b>READ UNCOMMITTED</b></td><td>不建视图</td><td>直接读最新版本（含未提交）</td><td>脏读</td><td>MVCC 失效，退化为裸读；InnoDB 下实际仍读已提交居多，但语义上是脏读</td></tr>
+    <tr><td><b>READ COMMITTED</b></td><td>语句级视图</td><td>每条语句看到最新已提交</td><td>不可重复读、幻读</td><td>语句结束视图即失效；判定灰色地带"不在活跃列表即可见"的典型体现</td></tr>
+    <tr><td><b>REPEATABLE READ</b><br><span style="color:var(--accent)">InnoDB 默认</span></td><td>事务级视图</td><td>整个事务看到同一快照</td><td>快照读无幻读；当前读靠 next-key lock</td><td>视图保持到事务结束；purge 水位被它牵制</td></tr>
+    <tr><td><b>SERIALIZABLE</b></td><td>快照读退化为当前读</td><td>所有读都加锁（含 SELECT）</td><td>并发度最低</td><td>MVCC 基本让位于锁：一致性读也变成锁定读，靠锁保证串行</td></tr>
+  </table>
+  </div>
+  <div class="note warn"><b>记忆锚点</b> —— 两条轴：<b>视图寿命</b>（无视图 → 语句级 → 事务级 → 锁替代）与<b>锁介入程度</b>（无锁 → 少量 → 快照读无锁 + 当前读临键锁 → 全加锁）。RC 与 RR 的差别<b>只在视图寿命</b>，判定算法一字未改 —— 这是 MVCC 设计最精妙的地方。</div>
+</div></section>
+
+<!-- ===== 07 源码地图 ===== -->
+<section class="block" id="sourcemap"><div class="wrap">
+  <div class="sec-head"><span class="no">07</span><h2>源码地图：概念 → 文件 → 符号</h2><span class="en">SOURCE MAP</span></div>
+  <p class="sec-lead">按"概念 → 落点文件 → 关键符号"三级映射，方便对照源码逐行阅读。</p>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <tr><th>概念</th><th>源码文件</th><th>关键符号</th></tr>
+    <tr><td><b>隐藏系统列</b></td><td><span class="mono">storage/innobase/include/data0data.h</span></td><td><span class="mono">DB_TRX_ID · DB_ROLL_PTR</span></td></tr>
+    <tr><td><b>undo 记录类型</b></td><td><span class="mono">storage/innobase/include/trx0rec.h</span></td><td><span class="mono">TRX_UNDO_INSERT_REC=11 · TRX_UNDO_UPD_EXIST_REC=12 · TRX_UNDO_UPD_DEL_REC=13</span></td></tr>
+    <tr><td><b>ReadView 定义与判定</b></td><td><span class="mono">storage/innobase/include/read0types.h</span></td><td><span class="mono">ReadView::changes_visible() · m_ids · m_low_limit_id · m_up_limit_id · m_creator_trx_id</span></td></tr>
+    <tr><td><b>快照分配</b></td><td><span class="mono">storage/innobase/trx/trx0trx.cc</span></td><td><span class="mono">trx_assign_read_view()</span></td></tr>
+    <tr><td><b>一致性读入口</b></td><td><span class="mono">storage/innobase/row/row0sel.cc</span></td><td><span class="mono">row_search_mvcc() · row_sel_build_prev_vers_for_mysql()</span></td></tr>
+    <tr><td><b>版本链遍历判定</b></td><td><span class="mono">storage/innobase/row/row0vers.cc</span></td><td><span class="mono">row_vers_old_has_index_entry()</span></td></tr>
+    <tr><td><b>旧版本物理清理</b></td><td><span class="mono">storage/innobase/trx/trx0purge.cc</span></td><td><span class="mono">purge 线程 · 全局最老视图水位</span></td></tr>
+    <tr><td><b>隔离级别枚举</b></td><td><span class="mono">sql/handler.h</span></td><td><span class="mono">enum_tx_isolation（ISO_READ_UNCOMMITTED ... ISO_SERIALIZABLE）</span></td></tr>
+  </table>
+  </div>
+  <div class="note"><b>建议的阅读顺序</b> —— ① <code class="k">trx0trx.cc</code> 看视图怎么创建；② <code class="k">read0types.h</code> 逐行读 <code class="k">changes_visible()</code>；③ <code class="k">row0sel.cc</code> 看一致性读如何沿链挑版本；④ <code class="k">row0vers.cc / trx0purge.cc</code> 看旧版本怎么被复用与清理。四步走完，MVCC 全链路贯通。</div>
+</div></section>
+
+<!-- ===== 08 面试速答 ===== -->
+<section class="block" id="faq"><div class="wrap">
+  <div class="sec-head"><span class="no">08</span><h2>面试高频题速答</h2><span class="en">INTERVIEW Q&A</span></div>
+
+  <div class="faq-item"><div class="q">Q1 · MVCC 到底解决了什么问题？</div><div class="a">读写不互斥：读（快照读）不加锁、不等待，通过多版本让"读旧版本"与"写新版本"并发进行。它解决的是<b>读-写并发</b>，写-写冲突仍然靠锁。</div></div>
+  <div class="faq-item"><div class="q">Q2 · RR 为什么能防幻读？快照读和当前读答案不同</div><div class="a"><b>快照读</b>：视图固定在整个事务内，新增行即使提交也不在当前视图可见，天然无幻读；<b>当前读</b>：<code class="k">SELECT ... FOR UPDATE</code> 等走 next-key lock，锁住记录及其间隙，阻止新行插入。两者合起来构成 MySQL 的 RR 语义。</div></div>
+  <div class="faq-item"><div class="q">Q3 · 可见性判定为什么用二分查找？</div><div class="a">活跃事务列表 <code class="k">m_ids</code> 在创建视图时按 id <b>升序</b>快照，之后只读不写；对有序静态数组用 <code class="k">std::binary_search</code> 是 O(log n)，且无锁无同步成本。这是读热路径，性能设计极苛刻。</div></div>
+  <div class="faq-item"><div class="q">Q4 · undo 为什么分 insert 和 update 两类？</div><div class="a">insert undo 只在<b>回滚</b>时用（删除自己插入的行），行删除后链条即断，无需被版本链引用；update undo 要<b>承载版本链</b>（供快照读回溯旧版本），生命周期受 purge 水位控制。分开管理是为了让 insert undo 可以更早被清理。</div></div>
+  <div class="faq-item"><div class="q">Q5 · 为什么长事务会拖垮数据库？</div><div class="a">长事务持有的 ReadView 成为全局最老视图，purge 水位无法前进，被它护住的旧版本（undo）不能物理删除 —— undo 膨胀、表空间增长，二级索引回表也要遍历更长的版本链。优化手段：缩短事务、拆分大事务、监控长事务。</div></div>
+</div></section>
+
+<footer><div class="wrap">
+  MySQL Server 8.4 · MVCC 源码专题 · 基于仓库 storage/innobase 与 sql/ 实际代码整理
+  <br><a class="back" href="OVERVIEW.html">← 返回 MySQL 知识图谱总览</a>
+</div></footer>
+
+<script>
+(function(){
+  var UP=10, LOW=30, CREATOR=15, IDS=[12,17,20];
+  var out=document.getElementById('out');
+  var btns=document.querySelectorAll('#txns button');
+  function step1(id){ return id < UP || id === CREATOR; }
+  function step2(id){ return id >= LOW; }
+  function step4(id){ return IDS.indexOf(id) >= 0; }
+  function explain(id){
+    var s='<span class="dim">changes_visible('+id+') 逐段判定：</span><br>';
+    if(step1(id)){
+      s+=id+' < 10（上水位）'+(id===CREATOR?'，或 == 15（创建者）':'')+' → <span class="ok">STEP 1 命中：可见</span><br>';
+      s+='<span class="hl">结论：该版本可见</span>'+(id===CREATOR?'（自己的写入必然可见）':'（小于上水位，必然已提交）');
+      return {s:s, ok:true};
+    }
+    s+=id+' 不满足 STEP 1（不小于 10，也不是创建者）<br>';
+    if(step2(id)){
+      s+=id+' ≥ 30（下水位）→ <span class="no">STEP 2 命中：不可见</span><br>';
+      s+='<span class="hl">结论：该版本不可见</span>（id 达到下水位，视图创建时它还没开始，属"未来事务"）';
+      return {s:s, ok:false};
+    }
+    s+='10 ≤ '+id+' < 30 → 进入灰色地带，检查活跃列表 m_ids=[12,17,20]<br>';
+    var inIds=step4(id);
+    if(IDS.length===0){ s+='m_ids 为空 → 直接可见<br>'; }
+    s+=inIds
+      ? '二分查找：'+id+' <span class="no">在活跃列表 [12,17,20] 中</span> → <span class="no">STEP 4 命中：不可见</span><br><span class="hl">结论：该版本不可见</span>（写入事务此刻仍活跃，快照看不到它未提交的修改）'
+      : '二分查找：'+id+' <span class="ok">不在活跃列表 [12,17,20] 中</span> → <span class="ok">STEP 4 判定：可见</span><br><span class="hl">结论：该版本可见</span>（灰色地带中已提交的事务，晚于视图创建也能看到）';
+    return {s:s, ok:!inIds};
+  }
+  btns.forEach(function(b){
+    b.addEventListener('click', function(){
+      if(b.classList.contains('done')) return;
+      var id=parseInt(b.getAttribute('data-id'),10);
+      var r=explain(id);
+      out.innerHTML=r.s;
+      b.classList.add('done');
+      b.classList.add(r.ok?'hit-ok':'hit-no');
+      b.title='已判定：'+(r.ok?'可见':'不可见');
+    });
+  });
+  document.getElementById('reset').addEventListener('click', function(){
+    out.innerHTML='点击上方任意事务 id，逐步演示 changes_visible() 的判定路径。';
+    btns.forEach(function(b){ b.classList.remove('done','hit-ok','hit-no'); b.title=''; });
+  });
+  // 滚动导航高亮
+  var chips=[].slice.call(document.querySelectorAll('nav.top a.chip'));
+  var secs=[].slice.call(document.querySelectorAll('section.block,header.hero'));
+  window.addEventListener('scroll', function(){
+    var y=window.scrollY+120, cur=chips[0];
+    secs.forEach(function(s){ if(s.offsetTop<=y) cur=chips[secs.indexOf(s)]; });
+    chips.forEach(function(c){ c.style.color=c===cur?'#4DD0E1':'', c.style.borderColor=c===cur?'#4DD0E1':''; });
+  },{passive:true});
+})();
+</script>
+</body>
+</html>
+
+
