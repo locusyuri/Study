@@ -1,0 +1,10 @@
+{
+  "includeIgnored": [
+    "Database/mysql-server/",
+    "Database/redis/",
+    "Middleware/kafka/",
+    "Middleware/rocketmq/",
+    "SpringBoot/spring-boot/",
+    "SpringBoot/spring-framework/"
+  ]
+}
