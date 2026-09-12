@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Redis 8.10.1 整体架构与源码解析 · Database/redis 学习笔记</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23DC382D'/%3E%3Cpath d='M16 6 26 16 16 26 6 16Z' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;900&display=swap">
+<style>
+  :root{
+    --bg:#0F141B; --bg2:#141B24; --card:#161E28; --card2:#1B2531;
+    --text:#E7EAEE; --text2:#9AA5B1; --text3:#6B7686; --line:rgba(255,255,255,.07);
+    --mono:"Cascadia Code",ui-monospace,Consolas,"SF Mono",Menlo,monospace;
+    --red:#E2594B; --red2:#DC382D;
+    --c1:#6FC7DE; --c2:#E8A87C; --c3:#6ECBA8; --c4:#B98CE8; --c5:#E88AA5; --c6:#E3D27A;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--bg);color:var(--text);
+    font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:rgba(220,56,45,.35);}
+  a{color:inherit;text-decoration:none;}
+  code,.mono,.path{font-family:var(--mono);font-size:.88em;}
+  .path{
+    color:var(--text2);background:rgba(0,0,0,.32);
+    border:1px solid rgba(255,255,255,.05);
+    padding:1px 6px;border-radius:5px;white-space:nowrap;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px;}
+
+  /* ===== 顶栏 ===== */
+  header{
+    position:sticky;top:0;z-index:50;
+    background:rgba(15,20,27,.9);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .nav{display:flex;align-items:center;gap:8px;padding:10px 0;overflow-x:auto;scrollbar-width:none;}
+  .nav::-webkit-scrollbar{display:none;}
+  .brand{font-weight:900;font-size:15px;letter-spacing:.5px;white-space:nowrap;margin-right:10px;}
+  .brand b{color:var(--red2);}
+  .chip{
+    flex:0 0 auto;padding:4px 12px;border-radius:999px;
+    font-size:12.5px;color:var(--text2);border:1px solid var(--line);
+    cursor:pointer;white-space:nowrap;transition:color .15s,border-color .15s,background .15s;
+  }
+  .chip:hover{color:var(--text);border-color:rgba(255,255,255,.22);}
+  .chip.on{color:var(--text);background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.28);}
+  .chip .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;}
+
+  /* ===== Hero ===== */
+  .hero{padding:54px 0 40px;border-bottom:1px solid var(--line);}
+  .hero .kicker{font-size:12.5px;letter-spacing:2px;color:var(--text3);margin-bottom:12px;}
+  .hero h1{font-size:38px;line-height:1.22;font-weight:900;letter-spacing:.5px;}
+  .hero h1 .hl{color:var(--red2);}
+  .hero .sub{margin-top:12px;color:var(--text2);font-size:15px;max-width:640px;}
+  .pillars{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap;}
+  .pillar{
+    border:1px solid var(--line);border-radius:10px;padding:10px 14px;
+    background:var(--card);flex:1 1 200px;min-width:0;
+  }
+  .pillar .n{font-size:12px;color:var(--text2);letter-spacing:1px;margin-bottom:3px;}
+  .pillar .t{font-size:13.5px;font-weight:600;}
+  .pillar .f{font-family:var(--mono);font-size:12px;color:var(--text2);margin-top:3px;display:block;}
+
+  /* ===== 通用区块 ===== */
+  section{padding:38px 0 8px;border-bottom:1px solid var(--line);scroll-margin-top:64px;}
+  .sec-head{display:flex;align-items:baseline;gap:12px;margin-bottom:8px;flex-wrap:wrap;}
+  .sec-no{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--red2);}
+  .sec-title{font-size:23px;font-weight:700;letter-spacing:.3px;}
+  .sec-en{font-size:12px;color:var(--text3);letter-spacing:1px;}
+  .sec-desc{color:var(--text2);font-size:13.5px;margin:2px 0 18px;max-width:820px;}
+  .sec-body{display:grid;gap:14px;}
+  .sec-body p{color:var(--text2);max-width:860px;}
+  .sec-body p b, .sec-body p strong{color:var(--text);}
+  .refs{display:flex;flex-wrap:wrap;gap:8px;}
+  .ref{
+    font-family:var(--mono);font-size:11.5px;color:var(--c1);
+    background:rgba(0,0,0,.32);border:1px solid var(--line);border-radius:7px;
+    padding:5px 10px;white-space:nowrap;
+  }
+  .ref .where{color:var(--text2);}
+  .points{list-style:none;display:grid;gap:8px;}
+  .points li{position:relative;padding-left:18px;color:var(--text2);font-size:13.5px;max-width:860px;}
+  .points li::before{content:"";position:absolute;left:2px;top:10px;width:6px;height:6px;border-radius:2px;background:var(--red2);}
+  .points li b{color:var(--text);}
+
+  /* ===== 分层架构图 ===== */
+  .arch{display:grid;gap:8px;}
+  .arch-row{display:flex;gap:12px;align-items:stretch;}
+  .arch-tag{
+    flex:0 0 148px;display:flex;flex-direction:column;justify-content:center;gap:2px;
+    padding:8px 10px;border-radius:8px;border:1px solid var(--line);
+    background:var(--card2);
+  }
+  .arch-tag .l{font-size:12.5px;font-weight:700;}
+  .arch-tag .s{font-size:10px;color:var(--text3);letter-spacing:.5px;}
+  .arch-mods{flex:1;display:flex;flex-wrap:wrap;gap:8px;align-content:center;}
+  .mod{
+    background:var(--card);border:1px solid var(--line);
+    border-top:3px solid var(--c1);border-radius:8px;
+    padding:8px 12px;min-width:170px;flex:1 1 170px;
+  }
+  .mod.m2{border-top-color:var(--c2);} .mod.m3{border-top-color:var(--c3);}
+  .mod.m4{border-top-color:var(--c4);} .mod.m5{border-top-color:var(--c5);}
+  .mod.m6{border-top-color:var(--c6);}
+  .mod .t{font-size:13px;font-weight:600;}
+  .mod .f{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:3px;line-height:1.5;display:block;}
+  .arch-cols{flex:1;display:flex;gap:8px;flex-wrap:wrap;}
+  .arch-col{flex:1 1 215px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px;}
+  .arch-col .ct{font-size:12px;font-weight:700;color:#fff;background:var(--red2);border-radius:5px;padding:2px 8px;margin-bottom:7px;display:inline-block;}
+  .arch-col .mod{min-width:0;flex:1 1 100%;margin-bottom:6px;background:var(--bg2);}
+  .arch-note{font-size:11.5px;color:var(--text3);margin-top:10px;}
+
+  /* ===== 命令旅程 ===== */
+  .flow{display:flex;flex-wrap:wrap;gap:0;align-items:stretch;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 14px;}
+  .fstep{flex:1 1 120px;min-width:120px;padding:6px 8px;position:relative;}
+  .fstep .n{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--red2);color:#fff;
+    align-items:center;justify-content:center;font-size:12px;font-weight:700;font-family:var(--mono);
+    vertical-align:middle;}
+  .fstep .t{display:inline-block;vertical-align:middle;font-size:13.5px;font-weight:700;padding-left:6px;}
+  .fstep .f{display:block;font-family:var(--mono);font-size:10.5px;color:var(--text2);margin-top:5px;line-height:1.5;}
+  .farrow{color:var(--red2);font-weight:700;font-size:18px;align-self:center;padding:0 2px;}
+
+  /* ===== 表格 ===== */
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;}
+  table{width:100%;border-collapse:collapse;table-layout:fixed;min-width:640px;}
+  th,td{padding:9px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);}
+  thead th{background:var(--card2);font-size:12.5px;color:var(--text2);font-weight:600;}
+  td{font-size:13px;color:var(--text2);}
+  td b, td .k{color:var(--text);font-weight:600;}
+  tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:rgba(255,255,255,.025);}
+  .mono-cell{font-family:var(--mono);font-size:11.5px;color:var(--c1);white-space:nowrap;}
+
+  /* ===== 源码索引 ===== */
+  .idx{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;}
+  .idx-card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:11px 13px;}
+  .idx-card .t{font-size:13.5px;font-weight:700;color:var(--c1);}
+  .idx-card .f{font-family:var(--mono);font-size:11px;color:var(--text2);margin:4px 0;display:block;}
+  .idx-card .d{font-size:12px;color:var(--text3);line-height:1.6;}
+
+  footer{padding:30px 0 44px;color:var(--text3);font-size:12.5px;}
+  footer .wrap{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+
+  #topBtn{
+    position:fixed;right:22px;bottom:22px;width:40px;height:40px;border-radius:10px;
+    background:var(--card2);border:1px solid var(--line);color:var(--text2);
+    font-size:16px;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .2s;
+    font-family:var(--mono);
+  }
+  #topBtn.show{opacity:1;pointer-events:auto;}
+  #topBtn:hover{color:var(--text);border-color:rgba(255,255,255,.25);}
+
+  @media (max-width:760px){
+    .wrap{padding:0 16px;}
+    .hero h1{font-size:28px;}
+    .nav{padding:8px 0;}
+    .chip{min-height:44px;display:inline-flex;align-items:center;padding:6px 13px;}
+    .arch-row{flex-direction:column;}
+    .arch-tag{flex:none;flex-direction:row;align-items:center;gap:8px;padding:6px 10px;}
+    .arch-tag .s{margin-left:auto;}
+    .flow{flex-direction:column;gap:8px;}
+    .farrow{transform:rotate(90deg);align-self:flex-start;padding-left:10px;}
+    section{padding:28px 0 4px;}
+  }
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto;}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <nav class="nav" id="nav">
+      <span class="brand">Redis <b>8.10.1</b></span>
+      <a class="chip" href="#arch"><span class="dot" style="background:var(--red2)"></span>总览架构</a>
+      <a class="chip" href="#flow"><span class="dot" style="background:var(--c6)"></span>命令旅程</a>
+      <a class="chip" href="#evloop"><span class="dot" style="background:var(--c1)"></span>事件驱动</a>
+      <a class="chip" href="#iothread"><span class="dot" style="background:var(--c1)"></span>IO 线程</a>
+      <a class="chip" href="#object"><span class="dot" style="background:var(--c2)"></span>对象与结构</a>
+      <a class="chip" href="#db"><span class="dot" style="background:var(--c3)"></span>数据库</a>
+      <a class="chip" href="#persist"><span class="dot" style="background:var(--c4)"></span>持久化</a>
+      <a class="chip" href="#ha"><span class="dot" style="background:var(--c5)"></span>高可用</a>
+      <a class="chip" href="#govern"><span class="dot" style="background:var(--c6)"></span>治理扩展</a>
+      <a class="chip" href="#index"><span class="dot" style="background:var(--text3)"></span>源码索引</a>
+    </nav>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="wrap">
+    <div class="kicker">学习笔记 · 基于仓库源码逐层拆解</div>
+    <h1>Redis <span class="hl">整体架构</span>与源码解析</h1>
+    <p class="sub">仓库 <span class="path">Database/redis</span> · 版本 <span class="path">src/version.h → REDIS_VERSION "8.10.1"</span>。以事件驱动单线程为核心，内存数据结构为引擎，fork + COW 做持久化，IO 线程化与多字典分片是 8.x 的两个关键演进。</p>
+    <div class="pillars">
+      <div class="pillar"><div class="n">执行模型</div><div class="t">单线程事件循环</div><div class="f">ae.c · aeMain</div></div>
+      <div class="pillar"><div class="n">存储介质</div><div class="t">纯内存 + 紧凑编码</div><div class="f">object.c · sds / listpack</div></div>
+      <div class="pillar"><div class="n">8.x 演进</div><div class="t">IO 线程 + 多字典分片</div><div class="f">iothread.c · kvstore.c</div></div>
+      <div class="pillar"><div class="n">持久化</div><div class="t">RDB 快照 + AOF 日志</div><div class="f">rdb.c · aof.c</div></div>
+    </div>
+  </div>
+</div>
+
+<section id="arch">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">00</span>
+      <span class="sec-title">分层架构与源码映射</span>
+      <span class="sec-en">ARCHITECTURE MAP</span>
+    </div>
+    <p class="sec-desc">从客户端到磁盘，按依赖方向自顶向下分八层。每个模块盒子标注对应源码文件，核心函数名可精确到 <span class="path">文件:行号</span>（行号以仓库当前版本为准）。</p>
+    <div class="arch">
+      <div class="arch-row">
+        <div class="arch-tag"><span class="l">L0 客户端层</span><span class="s">进程外</span></div>
+        <div class="arch-mods">
+          <div class="mod m6"><span class="t">redis-cli / benchmark</span><span class="f">src/redis-cli.c · redis-benchmark.c</span></div>
+          <div class="mod m6"><span class="t">各语言 SDK</span><span class="f">进程外 · 基于 RESP 协议</span></div>
+          <div class="mod m6"><span class="t">客户端缓存失效</span><span class="f">服务端 src/tracking.c</span></div>
+        </div>
+      </div>
+      <div class="arch-row">
+        <div class="arch-tag"><span class="l">L1 网络与协议</span><span class="s">RESP2/3</span></div>
+        <div class="arch-mods">
+          <div class="mod"><span class="t">连接与读写</span><span class="f">networking.c · readQueryFromClient / writeToClient</span></div>
+          <div class="mod"><span class="t">RESP 解析</span><span class="f">networking.c processInputBuffer · resp_parser.c</span></div>
+          <div class="mod"><span class="t">传输抽象</span><span class="f">connection.c · anet.c · tls.c</span></div>
+          <div class="mod"><span class="t">IO 线程（8.x）</span><span class="f">iothread.c · initThreadedIO</span></div>
+        </div>
+      </div>
+      <div class="arch-row">
+        <div class="arch-tag"><span class="l">L2 事件驱动核心</span><span class="s">主线程</span></div>
+        <div class="arch-mods">
+          <div class="mod"><span class="t">事件循环</span><span class="f">ae.c · aeMain / aeProcessEvents / aeApiPoll</span></div>
+          <div class="mod"><span class="t">多路复用实现</span><span class="f">ae_epoll.c · ae_kqueue.c · ae_select.c · ae_evport.c</span></div>
+          <div class="mod"><span class="t">服务生命周期</span><span class="f">server.c · initServer / beforeSleep / afterSleep / serverCron</span></div>
+        </div>
+      </div>
+      <div class="arch-row">
+        <div class="arch-tag"><span class="l">L3 命令调度</span><span class="s">分发 · 校验</span></div>
+        <div class="arch-mods">
+          <div class="mod"><span class="t">命令表</span><span class="f">commands.c · commandTable</span></div>
+          <div class="mod"><span class="t">命令分发</span><span class="f">server.c · processCommand / call()</span></div>
+          <div class="mod m5"><span class="t">事务</span><span class="f">multi.c · MULTI / EXEC / WATCH</span></div>
+          <div class="mod m5"><span class="t">阻塞命令</span><span class="f">blocked.c · blockClient（BLPOP…）</span></div>
+          <div class="mod m5"><span class="t">权限控制</span><span class="f">acl.c · ACLCheckAllPerm</span></div>
+          <div class="mod m5"><span class="t">脚本 / 函数</span><span class="f">script.c · script_lua.c · functions.c</span></div>
+        </div>
+      </div>
+      <div class="arch-row">
+        <div class="arch-tag"><span class="l">L4 数据引擎</span><span class="s">内存核心</span></div>
+        <div class="arch-cols">
+          <div class="arch-col">
+            <span class="ct">对象系统</span>
+            <div class="mod m2"><span class="t">robj 对象</span><span class="f">object.c · createObject（type + encoding + refcount）</span></div>
+            <div class="mod m2"><span class="t">编码转换</span><span class="f">t_string / t_hash / t_zset.c 的编码升级</span></div>
+          </div>
+          <div class="arch-col">
+            <span class="ct">底层数据结构</span>
+            <div class="mod m2"><span class="t">字符串 SDS</span><span class="f">sds.c · sdsnewlen</span></div>
+            <div class="mod m2"><span class="t">哈希表（渐进 rehash）</span><span class="f">dict.c · dictAddRaw</span></div>
+            <div class="mod m2"><span class="t">紧凑编码</span><span class="f">listpack.c · lpNew</span></div>
+            <div class="mod m2"><span class="t">List 底层</span><span class="f">quicklist.c · quicklistCreate</span></div>
+            <div class="mod m2"><span class="t">整数集合</span><span class="f">intset.c · intsetAdd</span></div>
+            <div class="mod m2"><span class="t">ZSet 跳表</span><span class="f">t_zset.c · zslInsert</span></div>
+            <div class="mod m2"><span class="t">Stream 基数树</span><span class="f">rax.c · raxInsert</span></div>
+          </div>
+          <div class="arch-col">
+            <span class="ct">数据库核心</span>
+            <div class="mod m3"><span class="t">键空间读写</span><span class="f">db.c · lookupKey / setKey（默认 16 库）</span></div>
+            <div class="mod m3"><span class="t">8.x 主字典</span><span class="f">kvstore.c · kvstoreCreate（多字典分片）</span></div>
+            <div class="mod m3"><span class="t">过期机制</span><span class="f">expire.c · activeExpireCycle；db.c · expireIfNeeded</span></div>
+            <div class="mod m3"><span class="t">键空间通知</span><span class="f">notify.c · notifyKeyspaceEvent</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="arch-row">
+        <div class="arch-tag"><span class="l">L5 持久化</span><span class="s">异步落盘</span></div>
+        <div class="arch-mods">
+          <div class="mod m4"><span class="t">RDB 快照</span><span class="f">rdb.c · rdbSave（fork + copy-on-write）</span></div>
+          <div class="mod m4"><span class="t">AOF 日志</span><span class="f">aof.c · flushAppendOnlyFile / 重写 / manifest</span></div>
+          <div class="mod m4"><span class="t">后台 I/O 线程</span><span class="f">bio.c · bioCreateBackgroundJob</span></div>
+          <div class="mod m4"><span class="t">异步释放</span><span class="f">lazyfree.c · UNLINK / FLUSHALL ASYNC</span></div>
+          <div class="mod m4"><span class="t">子进程管理</span><span class="f">childinfo.c</span></div>
+        </div>
+      </div>
+      <div class="arch-row">
+        <div class="arch-tag"><span class="l">L6 高可用</span><span class="s">分布式</span></div>
+        <div class="arch-mods">
+          <div class="mod m5"><span class="t">主从复制</span><span class="f">replication.c · PSYNC（全量 + 增量）</span></div>
+          <div class="mod m5"><span class="t">哨兵</span><span class="f">sentinel.c · 故障检测 / 自动切换</span></div>
+          <div class="mod m5"><span class="t">集群</span><span class="f">cluster.c · cluster_legacy.c · cluster_asm.c（槽位 + gossip）</span></div>
+          <div class="mod m5"><span class="t">发布订阅</span><span class="f">pubsub.c · pubsubPublishMessage</span></div>
+        </div>
+      </div>
+      <div class="arch-row">
+        <div class="arch-tag"><span class="l">L7 治理扩展</span><span class="s">资源 · 生态</span></div>
+        <div class="arch-mods">
+          <div class="mod m6"><span class="t">内存分配</span><span class="f">zmalloc.c · zmalloc（内存统计）</span></div>
+          <div class="mod m6"><span class="t">内存淘汰</span><span class="f">evict.c · performEvictions（LRU/LFU…）</span></div>
+          <div class="mod m6"><span class="t">碎片整理</span><span class="f">defrag.c · active defrag</span></div>
+          <div class="mod m6"><span class="t">慢日志 / 延迟</span><span class="f">slowlog.c · latency.c</span></div>
+          <div class="mod m6"><span class="t">模块系统</span><span class="f">module.c · RedisModule API</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="arch-note">示意结构图（非官方）：表述分层与调用关系；函数行号以 <span class="path">Database/redis/src</span> 当前版本为准。</p>
+  </div>
+</section>
+
+<section id="flow">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">01</span>
+      <span class="sec-title">一条命令的旅程</span>
+      <span class="sec-en">REQUEST LIFECYCLE</span>
+    </div>
+    <p class="sec-desc">以 <span class="path">SET key value</span> 为例，一个请求从建连到落盘贯穿上述全部层次；读写网络可在 IO 线程完成，命令执行始终在事件循环主线程。</p>
+    <div class="flow">
+      <div class="fstep"><span class="n">1</span><span class="t">建连</span><span class="f">acceptTcpHandler → createClient</span></div>
+      <div class="farrow">→</div>
+      <div class="fstep"><span class="n">2</span><span class="t">读入</span><span class="f">readQueryFromClient（IO 线程辅助）</span></div>
+      <div class="farrow">→</div>
+      <div class="fstep"><span class="n">3</span><span class="t">解析</span><span class="f">processInputBuffer（RESP2/3）</span></div>
+      <div class="farrow">→</div>
+      <div class="fstep"><span class="n">4</span><span class="t">校验</span><span class="f">processCommand：ACL / OOM / 过期 / 集群重定向</span></div>
+      <div class="farrow">→</div>
+      <div class="fstep"><span class="n">5</span><span class="t">执行</span><span class="f">call() → setCommand → 写 robj</span></div>
+      <div class="farrow">→</div>
+      <div class="fstep"><span class="n">6</span><span class="t">响应</span><span class="f">addReply → writeToClient（IO 线程辅助）</span></div>
+      <div class="farrow">→</div>
+      <div class="fstep"><span class="n">7</span><span class="t">落盘传播</span><span class="f">AOF 追加 · 主从传播 · 子进程 RDB</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="evloop">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">02</span>
+      <span class="sec-title">事件驱动核心：单线程为何能快</span>
+      <span class="sec-en">EVENT LOOP · ae.c</span>
+    </div>
+    <p class="sec-desc">高性能的根基是 <span class="path">src/ae.c</span> 的通用事件循环：文件事件（socket 就绪）+ 时间事件（定时任务）统一调度，回调里所有数据操作都在内存、无锁串行。</p>
+    <div class="sec-body">
+      <div class="refs">
+        <span class="ref"><span class="where">入口</span> ae.c:497 aeMain</span>
+        <span class="ref"><span class="where">调度</span> ae.c:365 aeProcessEvents</span>
+        <span class="ref"><span class="where">注册</span> ae.c:145 aeCreateFileEvent</span>
+        <span class="ref"><span class="where">服务启动</span> server.c:8038 main → :2999 initServer</span>
+        <span class="ref"><span class="where">休眠钩子</span> server.c:1947 beforeSleep</span>
+        <span class="ref"><span class="where">定期任务</span> server.c:1562 serverCron</span>
+      </div>
+      <ul class="points">
+        <li><b>多路复用抽象</b>：aeApiPoll 按平台编译切换实现 —— Linux <span class="path">ae_epoll.c</span>，BSD/macOS <span class="path">ae_kqueue.c</span>，兜底 <span class="path">ae_select.c / ae_evport.c</span>，业务代码只看一套 ae API。</li>
+        <li><b>主循环语义</b>：aeMain 即 <span class="mono">while(!stop) aeProcessEvents()</span>；先处理就绪读事件，再处理写事件，保证"读完即回包"的低延迟。</li>
+        <li><b>时间事件</b>：serverCron 每秒约 10 次（hz），集中做定期工作 —— 过期键采样删除、rehash 推进、RDB 触发检查、客户端超时。</li>
+        <li><b>休眠钩子</b>：beforeSleep 在阻塞等待前处理待写客户端、AOF 刷盘、释放过期键，把"碎片活"塞进本来要阻塞的空窗。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="iothread">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">03</span>
+      <span class="sec-title">8.x IO 线程化</span>
+      <span class="sec-en">IO THREADS · iothread.c</span>
+    </div>
+    <p class="sec-desc">6.0 引入多线程 IO，8.x 重构为独立的 <span class="path">src/iothread.c</span>：网络读写交给 IO 线程池，命令解析与执行仍由主线程串行 —— 吃满多核网卡中断，同时保住"执行无锁"语义。</p>
+    <div class="sec-body">
+      <div class="refs">
+        <span class="ref"><span class="where">启动</span> iothread.c:991 initThreadedIO</span>
+        <span class="ref"><span class="where">配置</span> server.h:2148 io_threads_num</span>
+        <span class="ref"><span class="where">待读</span> server.h:2108 clients_pending_read</span>
+        <span class="ref"><span class="where">待写</span> server.h:2109 clients_pending_write</span>
+      </div>
+      <ul class="points">
+        <li><b>读侧</b>：主线程把有数据待读的客户端批量分发给 IO 线程做 <span class="mono">read()</span>，解析留在主线程。</li>
+        <li><b>写侧</b>：响应先入输出缓冲，主线程按轮次把待写客户端交给 IO 线程批量 <span class="mono">write()</span>。</li>
+        <li><b>边界</b>：配置为 1（默认）即退化为纯单线程；线程数独立于主循环，无锁共享通过轮询 + 原子计数协调。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="object">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">04</span>
+      <span class="sec-title">对象系统与底层数据结构</span>
+      <span class="sec-en">OBJECT & DATA STRUCTURES</span>
+    </div>
+    <p class="sec-desc">所有 value 都以 robj（<span class="path">server.h</span>）为统一外壳：<b>逻辑类型 type</b> 与 <b>物理编码 encoding</b> 分离，同一类型可按规模切换底层结构 —— 这是 Redis 省内存的第一设计。</p>
+    <div class="sec-body">
+      <div class="refs">
+        <span class="ref"><span class="where">对象</span> object.c:107 createObject</span>
+        <span class="ref"><span class="where">字符串</span> object.c:338 createStringObject</span>
+        <span class="ref"><span class="where">Set</span> object.c:464 createSetObject</span>
+        <span class="ref"><span class="where">Hash</span> object.c:485 createHashObject</span>
+        <span class="ref"><span class="where">ZSet</span> object.c:492 createZsetObject</span>
+        <span class="ref"><span class="where">Stream</span> object.c:510 createStreamObject</span>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <colgroup><col style="width:14%"><col style="width:22%"><col style="width:32%"><col style="width:32%"></colgroup>
+          <thead><tr><th>数据类型</th><th>底层结构</th><th>源码位置</th><th>关键点</th></tr></thead>
+          <tbody>
+            <tr><td class="k">String</td><td>SDS 简单动态字符串</td><td class="mono-cell">sds.c:195 sdsnewlen</td><td>二进制安全、O(1) 取长度、预分配防频繁扩容</td></tr>
+            <tr><td class="k">Hash</td><td>dict / listpack</td><td class="mono-cell">dict.c:531 dictAddRaw · listpack.c:224 lpNew</td><td>渐进式 rehash：扩容分步搬桶，不阻塞</td></tr>
+            <tr><td class="k">List</td><td>quicklist（节点为 listpack）</td><td class="mono-cell">quicklist.c:134 quicklistCreate</td><td>双向链表 + 紧凑块，兼得内存与两端操作</td></tr>
+            <tr><td class="k">Set</td><td>intset / dict</td><td class="mono-cell">intset.c:212 intsetAdd</td><td>全整数且小时用整数集合，随规模升级</td></tr>
+            <tr><td class="k">ZSet</td><td>跳表 + dict / listpack</td><td class="mono-cell">t_zset.c:326 zslInsert</td><td>跳表做有序范围，dict 做 O(1) 查分</td></tr>
+            <tr><td class="k">Stream</td><td>rax 基数树 + listpack</td><td class="mono-cell">rax.c · raxInsert</td><td>前缀压缩树定位消息 ID</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="points">
+        <li><b>robj 三件套</b>：<span class="mono">type + encoding + refcount</span>；小整数走共享对象，短字符串用 embstr，长字符串用 sds raw（<span class="path">object.c</span> 各 create 函数可见）。</li>
+        <li><b>编码升级</b>：set 全整数 → intset → dict，小 hash 用 listpack → dict，触发阈值与转换逻辑在 <span class="path">t_set.c / t_hash.c / t_zset.c</span> 的写路径。</li>
+        <li><b>渐进式 rehash</b>：dict 扩容不一次性拷贝，由每次增删查和 serverCron 分步推进（<span class="path">dict.c</span> dictRehash）。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="db">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">05</span>
+      <span class="sec-title">数据库层与过期机制</span>
+      <span class="sec-en">DATABASE & EXPIRATION</span>
+    </div>
+    <p class="sec-desc">redisDb 持有键空间字典，默认 16 个库（<span class="path">server.h:2295 dbnum</span>）；8.x 把主字典从单 dict 升级为多字典分片的 kvstore，扩容抖动进一步摊平。</p>
+    <div class="sec-body">
+      <div class="refs">
+        <span class="ref"><span class="where">写入</span> db.c:743 setKey</span>
+        <span class="ref"><span class="where">删除</span> db.c:926 dbDelete</span>
+        <span class="ref"><span class="where">惰性过期</span> db.c:2999 expireIfNeeded</span>
+        <span class="ref"><span class="where">定期过期</span> expire.c:287 activeExpireCycle</span>
+        <span class="ref"><span class="where">主字典</span> kvstore.c:197 kvstoreCreate</span>
+        <span class="ref"><span class="where">通知</span> notify.c:276 notifyKeyspaceEvent</span>
+      </div>
+      <ul class="points">
+        <li><b>两阶段过期</b>：读路径先查 <span class="mono">expireIfNeeded</span>（惰性）；serverCron 调 <span class="mono">activeExpireCycle</span> 随机抽样删除（定期），每次删除的 CPU 开销限定在预算内。</li>
+        <li><b>8.x kvstore</b>：主键空间拆成多个小 dict 分片，单次 rehash 的桶数更小、内存峰值更低，大库扩容不再"卡顿一下"。</li>
+        <li><b>键空间通知</b>：<span class="mono">notifyKeyspaceEvent</span> 把变更事件推给 Pub/Sub，是缓存失效、审计类场景的钩子。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="persist">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">06</span>
+      <span class="sec-title">持久化：RDB + AOF</span>
+      <span class="sec-en">PERSISTENCE</span>
+    </div>
+    <p class="sec-desc">RDB 负责"某一刻的全量快照"，AOF 负责"逐条写命令的增量"，二者可组合（aof-use-rdb-preamble 混合持久化）。落盘路径全部避开主线程。</p>
+    <div class="sec-body">
+      <div class="refs">
+        <span class="ref"><span class="where">RDB</span> rdb.c:2180 rdbSave</span>
+        <span class="ref"><span class="where">AOF 刷盘</span> aof.c:1399 flushAppendOnlyFile</span>
+        <span class="ref"><span class="where">触发计数</span> server.h:2367 dirty</span>
+        <span class="ref"><span class="where">文件名</span> server.h:2318 aof_filename · :2374 rdb_filename</span>
+        <span class="ref"><span class="where">工具</span> redis-check-rdb.c · redis-check-aof.c</span>
+      </div>
+      <ul class="points">
+        <li><b>RDB 快照</b>：<span class="mono">fork()</span> 子进程利用 copy-on-write 落盘，父进程零阻塞；代价是写多时页复制带来瞬时内存上升。触发条件由 <span class="mono">dirty</span>（未保存改动数）与 save 点决定。</li>
+        <li><b>AOF 日志</b>：每次写命令追加到缓冲区，<span class="mono">flushAppendOnlyFile</span> 按 <span class="mono">appendfsync</span>（always / everysec / no）刷盘；8.x 为 multi-part AOF + manifest 管理多文件。</li>
+        <li><b>AOF 重写</b>：同样是 fork 子进程，将当前数据集压缩成最小命令集，避免日志无限膨胀。</li>
+        <li><b>后台线程</b>：bio.c 线程池承接 close fd、lazyfree、AOF fsync 等慢操作；大 key 删除走 lazyfree.c 异步释放，不阻塞主线程。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="ha">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">07</span>
+      <span class="sec-title">高可用与分布式</span>
+      <span class="sec-en">REPLICATION · SENTINEL · CLUSTER</span>
+    </div>
+    <p class="sec-desc">复制解决"数据冗余"，哨兵解决"主挂了怎么办"，集群解决"单机放不下"（16384 个 hash slot，CRC16 分片）。</p>
+    <div class="sec-body">
+      <div class="refs">
+        <span class="ref"><span class="where">主从复制</span> replication.c · PSYNC</span>
+        <span class="ref"><span class="where">哨兵</span> sentinel.c · server.h:2073 sentinel_mode</span>
+        <span class="ref"><span class="where">集群开关</span> server.h:2613 cluster_enabled</span>
+        <span class="ref"><span class="where">集群实现</span> cluster.c · cluster_legacy.c · cluster_asm.c</span>
+        <span class="ref"><span class="where">发布订阅</span> pubsub.c:533 pubsubPublishMessage</span>
+      </div>
+      <ul class="points">
+        <li><b>PSYNC</b>：全量同步传 RDB，增量同步靠 repl backlog 缓冲断线期间的写命令；<span class="path">replication.c</span> 还负责把写命令传播给所有从库。</li>
+        <li><b>哨兵</b>：独立进程监控主从，主观下线 + 投票选主 + 自动切换，对外提供高可用入口。</li>
+        <li><b>集群</b>：<span class="path">cluster_legacy.c</span> 承载槽位分配、gossip 集群视图与 MOVED/ASK 重定向；8.x 的 <span class="path">cluster_asm.c</span> 为新一代集群代码组织，另配 <span class="path">cluster_slot_stats.c</span> 做槽位统计。</li>
+        <li><b>Pub/Sub</b>：7.x 起 PUBLISH 也会在集群内传播（<span class="mono">pubsubPublishMessageAndPropagateToCluster</span>）。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="govern">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">08</span>
+      <span class="sec-title">资源治理与扩展机制</span>
+      <span class="sec-en">GOVERNANCE & EXTENSIBILITY</span>
+    </div>
+    <p class="sec-desc">内存统计、淘汰、碎片整理、慢日志构成运维底座；事务、阻塞命令、ACL、脚本与模块构成生态入口。</p>
+    <div class="sec-body">
+      <div class="refs">
+        <span class="ref"><span class="where">内存分配</span> zmalloc.c:284 zmalloc</span>
+        <span class="ref"><span class="where">淘汰</span> evict.c:532 performEvictions</span>
+        <span class="ref"><span class="where">碎片整理</span> defrag.c</span>
+        <span class="ref"><span class="where">慢日志</span> slowlog.c · latency.c</span>
+        <span class="ref"><span class="where">ACL</span> acl.c:1944 ACLCheckAllPerm</span>
+        <span class="ref"><span class="where">阻塞命令</span> blocked.c:74 blockClient</span>
+        <span class="ref"><span class="where">事务</span> multi.c · WATCH</span>
+        <span class="ref"><span class="where">客户端缓存</span> tracking.c:203 trackingRememberKeys</span>
+      </div>
+      <ul class="points">
+        <li><b>zmalloc</b>：在 malloc 前缀记录长度并累计 <span class="mono">used_memory</span>，可对接 jemalloc / tcmalloc —— 所有内存统计的源头。</li>
+        <li><b>淘汰策略</b>：LRU / LFU / random / noeviction 等 8 种，写入前由 <span class="mono">performEvictions</span> 按 <span class="mono">maxmemory</span> 逐出。</li>
+        <li><b>扩展面</b>：module.c 暴露 C 模块 API；script_lua.c / functions.c 提供脚本与函数（效果复制）；multi.c 事务 + WATCH 乐观锁；blocked.c 支撑 BLPOP 等阻塞语义；ACL 做命令与键级鉴权。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="index">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">09</span>
+      <span class="sec-title">核心源码文件索引</span>
+      <span class="sec-en">SOURCE INDEX · src/</span>
+    </div>
+    <p class="sec-desc">按功能聚类 <span class="path">Database/redis/src</span> 的关键文件，便于按主题跳读。</p>
+    <div class="idx">
+      <div class="idx-card"><span class="t">事件循环</span><span class="f">ae.c · ae_epoll.c · ae_kqueue.c · ae_select.c · ae_evport.c</span><span class="d">多路复用事件循环及四个平台实现</span></div>
+      <div class="idx-card"><span class="t">服务主体</span><span class="f">server.c · server.h · config.c</span><span class="d">redisServer 结构、启动、配置、命令分发</span></div>
+      <div class="idx-card"><span class="t">网络与协议</span><span class="f">networking.c · resp_parser.c · connection.c · anet.c · tls.c · iothread.c</span><span class="d">客户端读写、RESP2/3、传输抽象、IO 线程</span></div>
+      <div class="idx-card"><span class="t">对象与编码</span><span class="f">object.c · t_string.c · t_list.c · t_hash.c · t_set.c · t_zset.c · t_stream.c</span><span class="d">robj 与各类型命令实现、编码转换</span></div>
+      <div class="idx-card"><span class="t">数据结构</span><span class="f">sds.c · dict.c · listpack.c · quicklist.c · intset.c · rax.c · zipmap.c</span><span class="d">底层存储结构实现</span></div>
+      <div class="idx-card"><span class="t">数据库</span><span class="f">db.c · kvstore.c · expire.c · notify.c · keymeta.c</span><span class="d">键空间、8.x 主字典、过期、通知</span></div>
+      <div class="idx-card"><span class="t">持久化</span><span class="f">rdb.c · aof.c · rio.c · redis-check-rdb.c · redis-check-aof.c</span><span class="d">RDB/AOF、IO 抽象与校验工具</span></div>
+      <div class="idx-card"><span class="t">后台与内存</span><span class="f">bio.c · lazyfree.c · zmalloc.c · evict.c · defrag.c · childinfo.c</span><span class="d">后台线程、异步删除、内存统计与淘汰</span></div>
+      <div class="idx-card"><span class="t">高可用</span><span class="f">replication.c · sentinel.c · cluster.c · cluster_legacy.c · cluster_asm.c · cluster_slot_stats.c · pubsub.c</span><span class="d">复制、哨兵、集群、发布订阅</span></div>
+      <div class="idx-card"><span class="t">扩展与治理</span><span class="f">module.c · script.c · script_lua.c · functions.c · multi.c · blocked.c · acl.c · tracking.c · slowlog.c · latency.c</span><span class="d">模块、脚本、事务、阻塞、鉴权、监控</span></div>
+      <div class="idx-card"><span class="t">客户端工具</span><span class="f">redis-cli.c · redis-benchmark.c</span><span class="d">命令行与压测工具</span></div>
+      <div class="idx-card"><span class="t">8.x 新增</span><span class="f">iothread.c · kvstore.c · vector.c · fwtree.c · estore.c · mstr.c</span><span class="d">IO 线程、多字典、向量检索、FWTREE 等新能力</span></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Redis 8.10.1 架构解析 · 学习笔记 · 源码位于 Database/redis</span>
+    <span>图示为示意，函数行号以当前仓库为准</span>
+  </div>
+</footer>
+
+<button id="topBtn" aria-label="回到顶部">↑</button>
+
+<script>
+(function(){
+  "use strict";
+  var chips = Array.prototype.slice.call(document.querySelectorAll('#nav .chip'));
+  var sections = chips.map(function(c){
+    var id = c.getAttribute('href').slice(1);
+    return document.getElementById(id);
+  }).filter(Boolean);
+  var topBtn = document.getElementById('topBtn');
+  var ticking = false;
+
+  function onScroll(){
+    if(!ticking){
+      requestAnimationFrame(function(){
+        var pos = window.scrollY || document.documentElement.scrollTop;
+        var active = 0;
+        for(var i=0;i<sections.length;i++){
+          if(sections[i] && sections[i].offsetTop - 90 <= pos) active = i;
+        }
+        chips.forEach(function(c,i){ c.classList.toggle('on', i===active); });
+        topBtn.classList.toggle('show', pos > 600);
+        ticking = false;
+      });
+      ticking = true;
+    }
+  }
+  window.addEventListener('scroll', onScroll, {passive:true});
+  onScroll();
+
+  topBtn.addEventListener('click', function(){ window.scrollTo({top:0, behavior:'smooth'}); });
+})();
+</script>
+</body>
+</html>
