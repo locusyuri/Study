@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Redis 类型与编码 type · encoding 全解 · Database/redis 学习笔记</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23DC382D'/%3E%3Cpath d='M16 6 26 16 16 26 6 16Z' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;900&display=swap">
+<style>
+  :root{
+    --bg:#0F141B; --bg2:#141B24; --card:#161E28; --card2:#1B2531;
+    --text:#E7EAEE; --text2:#9AA5B1; --text3:#6B7686; --line:rgba(255,255,255,.07);
+    --mono:"Cascadia Code",ui-monospace,Consolas,"SF Mono",Menlo,monospace;
+    --red:#E2594B; --red2:#DC382D;
+    --c1:#6FC7DE; --c2:#E8A87C; --c3:#6ECBA8; --c4:#B98CE8; --c5:#E88AA5; --c6:#E3D27A;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--bg);color:var(--text);
+    font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:rgba(220,56,45,.35);}
+  a{color:inherit;text-decoration:none;}
+  code,.mono,.path{font-family:var(--mono);font-size:.88em;}
+  .path{
+    color:var(--text2);background:rgba(0,0,0,.32);
+    border:1px solid rgba(255,255,255,.05);
+    padding:1px 6px;border-radius:5px;white-space:nowrap;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px;}
+
+  /* ===== 顶栏 ===== */
+  header{
+    position:sticky;top:0;z-index:50;
+    background:rgba(15,20,27,.9);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .nav{display:flex;align-items:center;gap:8px;padding:10px 0;overflow-x:auto;scrollbar-width:none;}
+  .nav::-webkit-scrollbar{display:none;}
+  .brand{font-weight:900;font-size:15px;letter-spacing:.5px;white-space:nowrap;margin-right:10px;}
+  .brand b{color:var(--red2);}
+  .chip{
+    flex:0 0 auto;padding:4px 12px;border-radius:999px;
+    font-size:12.5px;color:var(--text2);border:1px solid var(--line);
+    cursor:pointer;white-space:nowrap;transition:color .15s,border-color .15s,background .15s;
+  }
+  .chip:hover{color:var(--text);border-color:rgba(255,255,255,.22);}
+  .chip.on{color:var(--text);background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.28);}
+  .chip .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;}
+
+  /* ===== Hero ===== */
+  .hero{padding:54px 0 40px;border-bottom:1px solid var(--line);}
+  .hero .kicker{font-size:12.5px;letter-spacing:2px;color:var(--text3);margin-bottom:12px;}
+  .hero h1{font-size:38px;line-height:1.22;font-weight:900;letter-spacing:.5px;}
+  .hero h1 .hl{color:var(--red2);}
+  .hero .sub{margin-top:12px;color:var(--text2);font-size:15px;max-width:680px;}
+  .pillars{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap;}
+  .pillar{
+    border:1px solid var(--line);border-radius:10px;padding:10px 14px;
+    background:var(--card);flex:1 1 190px;min-width:0;
+  }
+  .pillar .n{font-size:12px;color:var(--text2);letter-spacing:1px;margin-bottom:3px;}
+  .pillar .t{font-size:14px;font-weight:700;}
+  .pillar .s{font-size:12px;color:var(--text3);margin-top:2px;}
+
+  /* ===== 通用区块 ===== */
+  section{padding:38px 0 8px;border-bottom:1px solid var(--line);scroll-margin-top:64px;}
+  .sec-head{display:flex;align-items:baseline;gap:12px;margin-bottom:8px;flex-wrap:wrap;}
+  .sec-no{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--red2);}
+  .sec-title{font-size:23px;font-weight:700;letter-spacing:.3px;}
+  .sec-en{font-size:12px;color:var(--text3);letter-spacing:1px;}
+  .sec-desc{color:var(--text2);font-size:13.5px;margin:2px 0 18px;max-width:860px;}
+  .sec-body{display:grid;gap:14px;}
+  .sec-body p{color:var(--text2);max-width:860px;}
+  .sec-body p b,.sec-body p strong{color:var(--text);}
+  .refs{display:flex;flex-wrap:wrap;gap:8px;}
+  .ref{
+    font-family:var(--mono);font-size:11.5px;color:var(--c1);
+    background:rgba(0,0,0,.32);border:1px solid var(--line);border-radius:7px;
+    padding:5px 10px;white-space:nowrap;
+  }
+  .ref .where{color:var(--text2);}
+  .points{list-style:none;display:grid;gap:8px;}
+  .points li{position:relative;padding-left:18px;color:var(--text2);font-size:13.5px;max-width:880px;}
+  .points li::before{content:"";position:absolute;left:2px;top:10px;width:6px;height:6px;border-radius:2px;background:var(--red2);}
+  .points li b{color:var(--text);}
+  .note{
+    font-size:12.5px;color:var(--text3);background:rgba(255,255,255,.03);
+    border:1px solid var(--line);border-left:3px solid var(--red2);
+    border-radius:8px;padding:9px 13px;max-width:880px;
+  }
+  .note b{color:var(--text2);}
+
+  /* ===== 表格 ===== */
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;}
+  table{width:100%;border-collapse:collapse;table-layout:fixed;min-width:660px;}
+  th,td{padding:9px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);}
+  thead th{background:var(--card2);font-size:12.5px;color:var(--text2);font-weight:600;}
+  td{font-size:13px;color:var(--text2);}
+  td b,td .k{color:var(--text);font-weight:600;}
+  tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:rgba(255,255,255,.025);}
+  .mono-cell{font-family:var(--mono);font-size:11.5px;color:var(--c1);white-space:nowrap;}
+  .tag{
+    display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;
+    border:1px solid var(--line);margin-left:4px;vertical-align:1px;
+  }
+  .tag.cur{color:#0F141B;background:var(--c3);border-color:var(--c3);}
+  .tag.new{color:#0F141B;background:var(--c6);border-color:var(--c6);}
+  .tag.dep{color:var(--text3);background:transparent;border-color:rgba(255,255,255,.15);}
+  .tag.mod{color:#0F141B;background:var(--c1);border-color:var(--c1);}
+
+  /* ===== 结构图（robj 位字段） ===== */
+  .bits{display:flex;gap:2px;flex-wrap:wrap;margin:6px 0 4px;}
+  .bit{
+    border-radius:6px;padding:7px 9px;text-align:center;min-width:0;
+  }
+  .bit .b{font-family:var(--mono);font-size:11px;font-weight:700;display:block;letter-spacing:.5px;}
+  .bit .l{font-size:10.5px;display:block;margin-top:1px;opacity:.85;}
+  .bit .f{font-family:var(--mono);font-size:9.5px;display:block;margin-top:1px;opacity:.65;}
+
+  /* ===== 映射图 ===== */
+  .map{display:grid;gap:10px;}
+  .mrow{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:stretch;}
+  .mtype{
+    display:flex;flex-direction:column;justify-content:center;gap:2px;
+    background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;
+  }
+  .mtype .t{font-size:15px;font-weight:800;}
+  .mtype .c{font-family:var(--mono);font-size:11px;color:var(--text3);}
+  .menc{display:flex;flex-wrap:wrap;gap:8px;align-content:center;}
+  .enc{
+    flex:1 1 150px;background:var(--card);border:1px solid var(--line);
+    border-top:3px solid var(--c1);border-radius:8px;padding:8px 11px;
+  }
+  .enc.e2{border-top-color:var(--c2);} .enc.e3{border-top-color:var(--c3);}
+  .enc.e4{border-top-color:var(--c4);} .enc.e5{border-top-color:var(--c5);}
+  .enc .t{font-size:13px;font-weight:700;}
+  .enc .f{font-family:var(--mono);font-size:10.5px;color:var(--text2);margin-top:2px;display:block;}
+  .enc .c{font-size:11px;color:var(--text3);display:block;margin-top:3px;}
+  .enc .c b{color:var(--text2);}
+
+  /* ===== 决策流程 ===== */
+  .pipe{display:flex;flex-wrap:wrap;gap:0;align-items:stretch;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 14px;}
+  .pstep{flex:1 1 150px;min-width:150px;padding:6px 8px;}
+  .pstep .n{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--red2);color:#fff;
+    align-items:center;justify-content:center;font-size:12px;font-weight:700;font-family:var(--mono);
+    vertical-align:middle;}
+  .pstep .t{display:inline-block;vertical-align:middle;font-size:13.5px;font-weight:700;padding-left:6px;}
+  .pstep .f{display:block;font-family:var(--mono);font-size:10.5px;color:var(--text2);margin-top:5px;line-height:1.5;}
+  .parrow{color:var(--red2);font-weight:700;font-size:18px;align-self:center;padding:0 2px;}
+
+  /* ===== 源码索引 ===== */
+  .idx{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;}
+  .idx-card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:11px 13px;}
+  .idx-card .t{font-size:13.5px;font-weight:700;color:var(--c1);}
+  .idx-card .f{font-family:var(--mono);font-size:11px;color:var(--text2);margin:4px 0;display:block;}
+  .idx-card .d{font-size:12px;color:var(--text3);line-height:1.6;}
+
+  footer{padding:30px 0 44px;color:var(--text3);font-size:12.5px;}
+  footer .wrap{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+
+  #topBtn{
+    position:fixed;right:22px;bottom:22px;width:40px;height:40px;border-radius:10px;
+    background:var(--card2);border:1px solid var(--line);color:var(--text2);
+    font-size:16px;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .2s;
+    font-family:var(--mono);z-index:60;
+  }
+  #topBtn.show{opacity:1;pointer-events:auto;}
+  #topBtn:hover{color:var(--text);border-color:rgba(255,255,255,.25);}
+
+  @media (max-width:760px){
+    .wrap{padding:0 16px;}
+    .hero h1{font-size:28px;}
+    .nav{padding:8px 0;}
+    .chip{min-height:44px;display:inline-flex;align-items:center;padding:6px 13px;}
+    .mrow{grid-template-columns:1fr;}
+    .pipe{flex-direction:column;gap:8px;}
+    .parrow{transform:rotate(90deg);align-self:flex-start;padding-left:10px;}
+    section{padding:28px 0 4px;}
+  }
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto;}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <nav class="nav" id="nav">
+      <span class="brand">Redis <b>type · encoding</b></span>
+      <a class="chip" href="#concept"><span class="dot" style="background:var(--red2)"></span>核心概念</a>
+      <a class="chip" href="#types"><span class="dot" style="background:var(--c1)"></span>类型体系</a>
+      <a class="chip" href="#encs"><span class="dot" style="background:var(--c4)"></span>编码体系</a>
+      <a class="chip" href="#map"><span class="dot" style="background:var(--c2)"></span>类型×编码映射</a>
+      <a class="chip" href="#string"><span class="dot" style="background:var(--c3)"></span>String 编码</a>
+      <a class="chip" href="#agg"><span class="dot" style="background:var(--c5)"></span>聚合类型切换</a>
+      <a class="chip" href="#debug"><span class="dot" style="background:var(--c6)"></span>命令调试</a>
+      <a class="chip" href="#evolve"><span class="dot" style="background:var(--c2)"></span>8.x 演进</a>
+      <a class="chip" href="#index"><span class="dot" style="background:var(--text3)"></span>源码索引</a>
+    </nav>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="wrap">
+    <div class="kicker">学习笔记 · 源码 Database/redis · 8.10.1</div>
+    <h1>Redis <span class="hl">类型与编码</span>全解</h1>
+    <p class="sub">每一个键值对象都带着两个身份：<b>逻辑类型 type</b>（用户看到的 string / list / hash / set / zset…）与 <b>物理编码 encoding</b>（内存里实际怎么存）。同一类型可以随规模在多种编码间自动切换 —— 这是 Redis 在"省内存"与"高性能"之间找平衡的核心机制。</p>
+    <div class="pillars">
+      <div class="pillar"><div class="n">逻辑类型</div><div class="t">8 种</div><div class="s">OBJ_STRING 0 ~ OBJ_ARRAY 7（+GCRA）</div></div>
+      <div class="pillar"><div class="n">编码常量</div><div class="t">16 个</div><div class="s">RAW 0 ~ TMPL_ARRAY 15</div></div>
+      <div class="pillar"><div class="n">已废弃</div><div class="t">3 个</div><div class="s">zipmap · linkedlist · ziplist</div></div>
+      <div class="pillar"><div class="n">8.x 新增</div><div class="t">5 个</div><div class="s">kvobj · listpackex · tmpl · array</div></div>
+    </div>
+  </div>
+</div>
+
+<section id="concept">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">01</span>
+      <span class="sec-title">核心概念：robj 与 type / encoding 字段</span>
+      <span class="sec-en">THE redisObject</span>
+    </div>
+    <p class="sec-desc">所有 value 的统一外壳是 <span class="path">struct redisObject</span>（<span class="path">object.h:102</span>），type 与 encoding 是其中的两个 4-bit 位字段。8.x 在此基础上演化出 kvobj：内嵌 key 与元数据，进一步省一次分配。</p>
+    <div class="sec-body">
+      <div class="bits">
+        <div class="bit" style="flex:1 1 80px;background:#E2594B;"><span class="b" style="color:#fff;">type :4</span><span class="l" style="color:#fff;">逻辑类型</span><span class="f" style="color:#fff;">OBJ_STRING…</span></div>
+        <div class="bit" style="flex:1 1 80px;background:#6FC7DE;"><span class="b">encoding :4</span><span class="l">物理编码</span><span class="f">RAW/EMBSTR…</span></div>
+        <div class="bit" style="flex:1 1 90px;background:#B98CE8;"><span class="b">refcount :23</span><span class="l">引用计数</span><span class="f">共享对象</span></div>
+        <div class="bit" style="flex:1 1 60px;background:#E3D27A;"><span class="b">iskvobj :1</span><span class="l">8.x 标志</span><span class="f">kvobj</span></div>
+        <div class="bit" style="flex:1 1 80px;background:#6ECBA8;"><span class="b">metabits :8</span><span class="l">元数据位图</span><span class="f">过期等</span></div>
+        <div class="bit" style="flex:1 1 90px;background:#E88AA5;"><span class="b">lru :24</span><span class="l">LRU/LFU</span><span class="f">淘汰时钟</span></div>
+        <div class="bit" style="flex:1 1 70px;background:#9AA5B1;"><span class="b">ptr</span><span class="l">负载指针</span><span class="f">sds/dict…</span></div>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">结构</span> object.h:102 struct redisObject</span>
+        <span class="ref"><span class="where">创建</span> object.c:107 createObject</span>
+        <span class="ref"><span class="where">kvobj</span> object.h:119 typedef · kvobjCreate</span>
+        <span class="ref"><span class="where">编码名</span> object.c:1302 strEncoding</span>
+      </div>
+      <ul class="points">
+        <li><b>type 决定"能做什么命令"</b>：checkType（<span class="path">object.c:897</span>）在命令执行前校验，类型不符报 WRONGTYPE。</li>
+        <li><b>encoding 决定"怎么存"</b>：同一逻辑类型可对应多种编码，命令实现内部按 encoding 分支处理，对客户端完全透明。</li>
+        <li><b>8.x kvobj 演进</b>：把 key 内嵌进对象头（省一次 key 分配与寻址），并把过期时间等元数据以 8 字节块挂在对象前（<span class="path">object.h:44-64</span> 内存布局注释），metabits 位图标记哪些元数据存在。</li>
+      </ul>
+      <div class="note"><b>记忆锚点</b>：type 是"合同"（对外承诺的语义），encoding 是"实现"（内存里选哪套结构）；客户端永远只感知 type，encoding 由 Redis 在写路径上自动升级。</div>
+    </div>
+  </div>
+</section>
+
+<section id="types">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">02</span>
+      <span class="sec-title">逻辑类型体系</span>
+      <span class="sec-en">OBJECT TYPES</span>
+    </div>
+    <p class="sec-desc">类型常量定义在 <span class="path">server.h:875-903</span>。基本类型 5 种（OBJ_TYPE_BASIC_MAX=5），加 Module、Stream、Array（8.x 新增）共 8 种；<span class="path">TYPE</span> 命令即返回这张表的名字（<span class="path">db.c:2187 typeCommand → db.c:1804 getObjectTypeName</span>）。</p>
+    <div class="sec-body">
+      <div class="tbl-wrap">
+        <table>
+          <colgroup><col style="width:14%"><col style="width:22%"><col style="width:30%"><col style="width:34%"></colgroup>
+          <thead><tr><th>类型</th><th>常量 · 值</th><th>TYPE 返回</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="k">String</td><td class="mono-cell">OBJ_STRING 0</td><td class="mono-cell">string</td><td>最基础类型；set / incr / 位图 / 任意二进制</td></tr>
+            <tr><td class="k">List</td><td class="mono-cell">OBJ_LIST 1</td><td class="mono-cell">list</td><td>双端队列语义；lpush / lpop / lrange</td></tr>
+            <tr><td class="k">Set</td><td class="mono-cell">OBJ_SET 2</td><td class="mono-cell">set</td><td>无序去重集合；sadd / sinter / spop</td></tr>
+            <tr><td class="k">ZSet</td><td class="mono-cell">OBJ_ZSET 3</td><td class="mono-cell">zset</td><td>有序集合；zadd / zrangebyscore / zrank</td></tr>
+            <tr><td class="k">Hash</td><td class="mono-cell">OBJ_HASH 4</td><td class="mono-cell">hash</td><td>field-value 映射；hset / hget / hincrby</td></tr>
+            <tr><td class="k">Module <span class="tag mod">特殊</span></td><td class="mono-cell">OBJ_MODULE 5</td><td class="mono-cell">模块自定义名</td><td>value 由模块托管；RDB/AOF 经模块序列化回调</td></tr>
+            <tr><td class="k">Stream</td><td class="mono-cell">OBJ_STREAM 6</td><td class="mono-cell">stream</td><td>追加日志结构；xadd / xread / xrange</td></tr>
+            <tr><td class="k">Array <span class="tag new">8.x</span></td><td class="mono-cell">OBJ_ARRAY 7</td><td class="mono-cell">array</td><td>8.x 新增类型（t_array.c），定长元素序列</td></tr>
+            <tr><td class="k">GCRA <span class="tag dep">可选</span></td><td class="mono-cell">OBJ_GCRA 8</td><td class="mono-cell">—</td><td>仅 -DENABLE_GCRA 编译；令牌桶限流对象</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="points">
+        <li><b>TYPE 命令实现</b>：<span class="path">db.c:2187</span> 只做两件事 —— <span class="mono">lookupKeyReadWithFlags</span> 取对象、<span class="mono">getObjectTypeName</span> 映射名字，O(1)。</li>
+        <li><b>Module 特殊</b>：类型名来自模块注册时的 <span class="mono">entity.name</span>（<span class="path">db.c:1811-1813</span>），RDB 中以 64 位模块类型 ID 持久化（<span class="path">server.h:889-892</span>）。</li>
+        <li><b>类型上限</b>：OBJ_TYPE_MAX=8（无 GCRA）或 9（有 GCRA），服务器启动即校验所有类型号在界内（<span class="path">db.c:1809</span>）。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="encs">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">03</span>
+      <span class="sec-title">物理编码体系</span>
+      <span class="sec-en">OBJECT ENCODINGS</span>
+    </div>
+    <p class="sec-desc">编码常量集中在 <span class="path">object.h:75-91</span>；<span class="path">OBJECT ENCODING</span> 命令输出名由 <span class="path">object.c:1302 strEncoding()</span> 统一映射。红色为 8.x 新增，灰线为已废弃（RDB 兼容仍保留编号）。</p>
+    <div class="sec-body">
+      <div class="tbl-wrap">
+        <table>
+          <colgroup><col style="width:20%"><col style="width:16%"><col style="width:20%"><col style="width:44%"></colgroup>
+          <thead><tr><th>编码名</th><th>常量 · 值</th><th>状态</th><th>用途 / 承载结构</th></tr></thead>
+          <tbody>
+            <tr><td class="k">raw</td><td class="mono-cell">OBJ_ENCODING_RAW 0</td><td><span class="tag cur">在用</span></td><td>独立分配的 sds，长字符串（>44 字节）</td></tr>
+            <tr><td class="k">int</td><td class="mono-cell">OBJ_ENCODING_INT 1</td><td><span class="tag cur">在用</span></td><td>整数值直接存进 ptr，零额外内存</td></tr>
+            <tr><td class="k">hashtable</td><td class="mono-cell">OBJ_ENCODING_HT 2</td><td><span class="tag cur">在用</span></td><td>dict 哈希表，大 hash / set / zset 字典侧</td></tr>
+            <tr><td class="k">zipmap</td><td class="mono-cell">OBJ_ENCODING_ZIPMAP 3</td><td><span class="tag dep">废弃</span></td><td>远古 hash 编码，RDB 兼容保留</td></tr>
+            <tr><td class="k">linkedlist</td><td class="mono-cell">OBJ_ENCODING_LINKEDLIST 4</td><td><span class="tag dep">废弃</span></td><td>旧 list 编码（双链表），已被 quicklist 取代</td></tr>
+            <tr><td class="k">ziplist</td><td class="mono-cell">OBJ_ENCODING_ZIPLIST 5</td><td><span class="tag dep">废弃</span></td><td>旧 list/hash/zset 紧凑编码，被 listpack 取代</td></tr>
+            <tr><td class="k">intset</td><td class="mono-cell">OBJ_ENCODING_INTSET 6</td><td><span class="tag cur">在用</span></td><td>有序整数数组（int16/32/64 自动升级），小 set</td></tr>
+            <tr><td class="k">skiplist</td><td class="mono-cell">OBJ_ENCODING_SKIPLIST 7</td><td><span class="tag cur">在用</span></td><td>跳表 + dict 组合，大 zset 的有序索引</td></tr>
+            <tr><td class="k">embstr</td><td class="mono-cell">OBJ_ENCODING_EMBSTR 8</td><td><span class="tag cur">在用</span></td><td>对象头 + sds 一次性分配，短字符串（≤44）</td></tr>
+            <tr><td class="k">quicklist</td><td class="mono-cell">OBJ_ENCODING_QUICKLIST 9</td><td><span class="tag cur">在用</span></td><td>listpack 节点组成的双向链表，list 底层</td></tr>
+            <tr><td class="k">stream</td><td class="mono-cell">OBJ_ENCODING_STREAM 10</td><td><span class="tag cur">在用</span></td><td>rax 基数树 + listpack，stream 唯一编码</td></tr>
+            <tr><td class="k">listpack</td><td class="mono-cell">OBJ_ENCODING_LISTPACK 11</td><td><span class="tag cur">在用</span></td><td>紧凑序列编码，小 hash / zset / list 节点</td></tr>
+            <tr><td class="k">listpackex</td><td class="mono-cell">OBJ_ENCODING_LISTPACK_EX 12</td><td><span class="tag new">8.x</span></td><td>listpack + 字段级 TTL 扩展（hash 字段过期）</td></tr>
+            <tr><td class="k">sliced-array</td><td class="mono-cell">OBJ_ENCODING_SLICED_ARRAY 13</td><td><span class="tag new">8.x</span></td><td>定长切片的元素数组（array 类型底层）</td></tr>
+            <tr><td class="k">template-listpack</td><td class="mono-cell">OBJ_ENCODING_TMPL_LP 14</td><td><span class="tag new">8.x</span></td><td>hash 共享字段名模板，值存 listpack</td></tr>
+            <tr><td class="k">template-array</td><td class="mono-cell">OBJ_ENCODING_TMPL_ARRAY 15</td><td><span class="tag new">8.x</span></td><td>hash 共享字段名模板，值存 sds 数组</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note"><b>为什么编码是"实现细节"</b>：客户端看不到 encoding，命令语义只由 type 决定；encoding 的存在让 Redis 对小数据用紧凑内存（listpack/intset），大数据用可扩展结构（dict/skiplist），切换对调用方完全透明。</div>
+    </div>
+  </div>
+</section>
+
+<section id="map">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">04</span>
+      <span class="sec-title">类型 × 编码 映射图</span>
+      <span class="sec-en">TYPE → ENCODING MAP</span>
+    </div>
+    <p class="sec-desc">每种逻辑类型可能的物理编码及切换方向。箭头方向即"规模变大时的自动升级路径"；listpack 系编码由 7.x 的 ziplist 全面替换而来。</p>
+    <div class="sec-body">
+      <div class="map">
+        <div class="mrow">
+          <div class="mtype"><span class="t" style="color:var(--c3)">String</span><span class="c">OBJ_STRING 0</span></div>
+          <div class="menc">
+            <div class="enc e3"><span class="t">int</span><span class="f">OBJ_ENCODING_INT</span><span class="c">整数值直存 ptr</span></div>
+            <div class="enc e3"><span class="t">embstr</span><span class="f">OBJ_ENCODING_EMBSTR</span><span class="c">≤44 字节一次分配</span></div>
+            <div class="enc e3"><span class="t">raw</span><span class="f">OBJ_ENCODING_RAW</span><span class="c">&gt;44 字节独立 sds</span></div>
+          </div>
+        </div>
+        <div class="mrow">
+          <div class="mtype"><span class="t" style="color:var(--c2)">List</span><span class="c">OBJ_LIST 1</span></div>
+          <div class="menc">
+            <div class="enc e2"><span class="t">quicklist</span><span class="f">OBJ_ENCODING_QUICKLIST</span><span class="c">listpack 节点 + 双向链表，可压缩</span></div>
+          </div>
+        </div>
+        <div class="mrow">
+          <div class="mtype"><span class="t" style="color:var(--c1)">Hash</span><span class="c">OBJ_HASH 4</span></div>
+          <div class="menc">
+            <div class="enc e1"><span class="t">listpack</span><span class="f">OBJ_ENCODING_LISTPACK</span><span class="c">小 hash 默认</span></div>
+            <div class="enc e1"><span class="t">listpackex</span><span class="f">OBJ_ENCODING_LISTPACK_EX</span><span class="c">字段带 TTL</span></div>
+            <div class="enc e1"><span class="t">template-listpack</span><span class="f">OBJ_ENCODING_TMPL_LP</span><span class="c">共享字段名模板</span></div>
+            <div class="enc e1"><span class="t">template-array</span><span class="f">OBJ_ENCODING_TMPL_ARRAY</span><span class="c">模板 + sds 数组</span></div>
+            <div class="enc e1"><span class="t">hashtable</span><span class="f">OBJ_ENCODING_HT</span><span class="c">大 hash 兜底</span></div>
+          </div>
+        </div>
+        <div class="mrow">
+          <div class="mtype"><span class="t" style="color:var(--c5)">Set</span><span class="c">OBJ_SET 2</span></div>
+          <div class="menc">
+            <div class="enc e5"><span class="t">intset</span><span class="f">OBJ_ENCODING_INTSET</span><span class="c">全整数且 ≤512</span></div>
+            <div class="enc e5"><span class="t">hashtable</span><span class="f">OBJ_ENCODING_HT</span><span class="c">元素多 / 含字符串</span></div>
+          </div>
+        </div>
+        <div class="mrow">
+          <div class="mtype"><span class="t" style="color:var(--c4)">ZSet</span><span class="c">OBJ_ZSET 3</span></div>
+          <div class="menc">
+            <div class="enc e4"><span class="t">listpack</span><span class="f">OBJ_ENCODING_LISTPACK</span><span class="c">≤128 且值 ≤64B</span></div>
+            <div class="enc e4"><span class="t">skiplist</span><span class="f">OBJ_ENCODING_SKIPLIST</span><span class="c">跳表 + dict 双结构</span></div>
+          </div>
+        </div>
+        <div class="mrow">
+          <div class="mtype"><span class="t" style="color:var(--c6)">Stream</span><span class="c">OBJ_STREAM 6</span></div>
+          <div class="menc">
+            <div class="enc e6"><span class="t">stream</span><span class="f">OBJ_ENCODING_STREAM</span><span class="c">rax（ID 索引）+ listpack（消息块）</span></div>
+          </div>
+        </div>
+        <div class="mrow">
+          <div class="mtype"><span class="t" style="color:var(--c2)">Array <span style="font-size:10px;color:var(--text3)">8.x</span></span><span class="c">OBJ_ARRAY 7</span></div>
+          <div class="menc">
+            <div class="enc e2"><span class="t">sliced-array</span><span class="f">OBJ_ENCODING_SLICED_ARRAY</span><span class="c">定长切片数组（t_array.c）</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="note"><b>读图方法</b>：每个类型下从左到右大致是"内存更省 → 更通用"的升迁路径；例如 hash：listpack → listpackex/tmpl（8.x 中间形态）→ hashtable，set：intset → hashtable，zset：listpack → skiplist。</div>
+    </div>
+  </div>
+</section>
+
+<section id="string">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">05</span>
+      <span class="sec-title">String 编码：int / embstr / raw</span>
+      <span class="sec-en">STRING ENCODING</span>
+    </div>
+    <p class="sec-desc">字符串有三种编码，写入时按值形态自动选择，读取时按需解码。逻辑集中在 <span class="path">object.c</span> 的 create 函数族与 tryObjectEncoding。</p>
+    <div class="sec-body">
+      <div class="pipe">
+        <div class="pstep"><span class="n">1</span><span class="t">数值？</span><span class="f">可表示为 long long → INT，ptr 直接存数值（object.c:370-373）</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">2</span><span class="t">长度 ≤44？</span><span class="f">createEmbeddedStringObject → EMBSTR（object.c:339，OBJ_ENCODING_EMBSTR_SIZE_LIMIT=44）</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">3</span><span class="t">否则</span><span class="f">createRawStringObject → RAW，独立 sds（object.c:342）</span></div>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">入口</span> object.c:338 createStringObject</span>
+        <span class="ref"><span class="where">整数路径</span> object.c:364 createStringObjectFromLongLongWithOptions</span>
+        <span class="ref"><span class="where">再编码</span> object.c:999 tryObjectEncoding</span>
+        <span class="ref"><span class="where">解码</span> object.c getDecodedObject</span>
+        <span class="ref"><span class="where">阈值</span> object.c:337 #define ... 44</span>
+      </div>
+      <ul class="points">
+        <li><b>共享整数</b>：0~9999（OBJ_SHARED_INTEGERS）直接复用全局共享对象（<span class="mono">shared.integers[]</span>），refcount 计数；LFU/LRU 淘汰场景走专用创建（<span class="mono">createStringObjectFromLongLongForValue</span>，object.c:394）。</li>
+        <li><b>embstr 的优势</b>：对象头 + sds 头 + 数据在一次 malloc 里完成，内存局部性好、省一次分配与释放；<b>缺陷</b>：一旦 append 变长只能整体转为 raw。</li>
+        <li><b>tryObjectEncoding</b>：写路径尝试把 raw 再压缩成 embstr / int（如 INCR 后变回数值），并做 sds 裁剪（try_trim）。</li>
+        <li><b>int 编码的边界</b>：只有整数值落在 <span class="mono">LONG_MIN ~ LONG_MAX</span> 才用 int（object.c:370），超出即退化为字符串。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="agg">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">06</span>
+      <span class="sec-title">聚合类型编码与切换条件</span>
+      <span class="sec-en">AGGREGATE CONVERSION</span>
+    </div>
+    <p class="sec-desc">Hash / Set / ZSet / List 都在写路径上检查"该不该升级编码"，阈值全部可配（<span class="path">config.c:3482-3494</span>）。下表是 8.10.1 的默认值与触发条件。</p>
+    <div class="sec-body">
+      <div class="tbl-wrap">
+        <table>
+          <colgroup><col style="width:12%"><col style="width:20%"><col style="width:34%"><col style="width:34%"></colgroup>
+          <thead><tr><th>类型</th><th>转换路径</th><th>触发条件</th><th>源码 / 配置默认值</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="k">Hash</td>
+              <td class="mono-cell">listpack → listpackex / tmpl → hashtable</td>
+              <td>字段数 &gt; 512，或任一 value &gt; 64 字节，或 listpack 放不下；带字段 TTL 时升 listpackex</td>
+              <td class="mono-cell">t_hash.c:1561 hashTypeTryConversion<br>hash-max-listpack-entries 512 · hash-max-listpack-value 64</td>
+            </tr>
+            <tr>
+              <td class="k">Set</td>
+              <td class="mono-cell">intset → hashtable</td>
+              <td>元素数 &gt; 512，或插入非整数元素</td>
+              <td class="mono-cell">t_set.c:61 setTypeMaybeConvert<br>set-max-intset-entries 512</td>
+            </tr>
+            <tr>
+              <td class="k">ZSet</td>
+              <td class="mono-cell">listpack → skiplist</td>
+              <td>元素数 &gt; 128，或任一成员长度 &gt; 64 字节</td>
+              <td class="mono-cell">t_zset.c:1439 zsetConvert · :1523 zsetConvertToListpackIfNeeded<br>zset-max-listpack-entries 128 · zset-max-listpack-value 64</td>
+            </tr>
+            <tr>
+              <td class="k">List</td>
+              <td class="mono-cell">始终 quicklist（listpack 节点）</td>
+              <td>quicklist 内节点按 list-max-listpack-size 拆分；list-compress-depth 可选压缩中间节点</td>
+              <td class="mono-cell">t_list.c:113 listTypeTryConversionRaw<br>list-max-listpack-size -2（≈8KB）· list-compress-depth 0</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">Hash 转换</span> t_hash.c:1561 hashTypeTryConversion</span>
+        <span class="ref"><span class="where">Set 转换</span> t_set.c:61 setTypeMaybeConvert</span>
+        <span class="ref"><span class="where">ZSet 转换</span> t_zset.c:1439 zsetConvert</span>
+        <span class="ref"><span class="where">List 转换</span> t_list.c:130 listTypeTryConversion</span>
+        <span class="ref"><span class="where">配置</span> config.c:3482 / 3489 / 3492 / 3400</span>
+      </div>
+      <ul class="points">
+        <li><b>Hash 的 8.x 升级链</b>：<span class="mono">LISTPACK → LISTPACK_EX（字段 TTL）→ TMPL_LP（共享字段模板）→ TMPL_ARRAY / HT</span>。TMPL 系列把重复出现的 field 名内联成一份模板，值为数组或 listpack（<span class="path">object.h:89-90</span>、<span class="path">aof.c:2427 isTmpl</span>）。</li>
+        <li><b>intset 细节</b>：内部始终有序，按最大元素自动升级 16→32→64 位；升 HT 是单向的（不做降级），删除元素不会回到 intset。</li>
+        <li><b>skiplist 是双结构</b>：跳表提供 O(logN) 范围查询，同层 dict 提供 O(1) 按成员查分，两者共享节点（<span class="path">t_zset.c</span> zset 结构）。</li>
+        <li><b>升级不可逆</b>：所有转换都是小→大单向，避免频繁抖动；阈值在 config 可调，但建议保持默认。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="debug">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">07</span>
+      <span class="sec-title">观察与调试：TYPE / OBJECT ENCODING</span>
+      <span class="sec-en">INSPECTION</span>
+    </div>
+    <p class="sec-desc">两条最常用的内省命令：<span class="path">TYPE key</span> 看逻辑类型，<span class="path">OBJECT ENCODING key</span> 看物理编码。实现都在 5 行以内，是理解编码体系的最佳上手点。</p>
+    <div class="sec-body">
+      <div class="refs">
+        <span class="ref"><span class="where">TYPE</span> db.c:2187 typeCommand → db.c:1804 getObjectTypeName</span>
+        <span class="ref"><span class="where">OBJECT</span> object.c:1751 objectCommand</span>
+        <span class="ref"><span class="where">编码名</span> object.c:1302 strEncoding</span>
+        <span class="ref"><span class="where">类型名校验</span> object.c:897 checkType</span>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <colgroup><col style="width:34%"><col style="width:66%"></colgroup>
+          <thead><tr><th>命令</th><th>输出与含义</th></tr></thead>
+          <tbody>
+            <tr><td class="mono-cell">SET k 123 → OBJECT ENCODING k</td><td><span class="mono-cell">int</span>（数值直存）</td></tr>
+            <tr><td class="mono-cell">SET k hello → OBJECT ENCODING k</td><td><span class="mono-cell">embstr</span>（≤44 字节）</td></tr>
+            <tr><td class="mono-cell">SET k &lt;45+ 字节&gt; → OBJECT ENCODING k</td><td><span class="mono-cell">raw</span>（独立 sds）</td></tr>
+            <tr><td class="mono-cell">SADD s 1 2 3 → OBJECT ENCODING s</td><td><span class="mono-cell">intset</span>（全整数且小）；插入字符串后变 <span class="mono-cell">hashtable</span></td></tr>
+            <tr><td class="mono-cell">ZADD z 1 a … 129 个 → OBJECT ENCODING z</td><td>开始 <span class="mono-cell">listpack</span>，超过 128 后变 <span class="mono-cell">skiplist</span></td></tr>
+            <tr><td class="mono-cell">HSET h f v … 513 个 → OBJECT ENCODING h</td><td>开始 <span class="mono-cell">listpack</span>，超过 512 后变 <span class="mono-cell">hashtable</span></td></tr>
+            <tr><td class="mono-cell">RPUSH l a b c → OBJECT ENCODING l</td><td><span class="mono-cell">quicklist</span>（list 唯一编码）</td></tr>
+            <tr><td class="mono-cell">XADD st * f v → OBJECT ENCODING st</td><td><span class="mono-cell">stream</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note"><b>WRONGTYPE 从哪来</b>：命令执行前 checkType 比对对象 type 与命令要求；编码差异不会报错 —— 同一命令实现内按 encoding 分支，例如 hash 的 hget 同时支持 listpack 与 hashtable 两种取法（<span class="path">t_hash.c:1605 hashTypeGetFromListpack</span>）。</div>
+    </div>
+  </div>
+</section>
+
+<section id="evolve">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">08</span>
+      <span class="sec-title">8.x 演进：从 robj 到 kvobj</span>
+      <span class="sec-en">8.x EVOLUTION</span>
+    </div>
+    <p class="sec-desc">8.10 的编码体系在 7.x 基础上做了三件事：listpack 全面取代 ziplist、对象模型升级为 kvobj、hash 家族新增三种紧凑编码并引入 array 类型。</p>
+    <div class="sec-body">
+      <div class="refs">
+        <span class="ref"><span class="where">kvobj 定义</span> object.h:119-127 kvobjCreate / kvobjSet / kvobjSetExpire</span>
+        <span class="ref"><span class="where">内存布局</span> object.h:24-64 头注释</span>
+        <span class="ref"><span class="where">TMPL 编码</span> object.h:89-90</span>
+        <span class="ref"><span class="where">Array 类型</span> server.h:898 OBJ_ARRAY · object.h:169 createArrayObject</span>
+        <span class="ref"><span class="where">listpackex</span> object.h:87 · t_hash.c 字段过期</span>
+      </div>
+      <ul class="points">
+        <li><b>ziplist → listpack</b>：7.0 起 listpack 全面替换 ziplist；8.x 中 OBJ_ENCODING_ZIPLIST=5 仅保留编号用于 RDB 旧数据兼容，运行期不再产生。</li>
+        <li><b>kvobj 内嵌 key</b>：键与值合并为一次分配（<span class="mono">kvobjCreate</span>），过期时间等元数据以 8 字节块前置于对象（<span class="mono">metabits</span> 位图标记存在性）——减少一次哈希表外的 key 分配和寻址。</li>
+        <li><b>hash 字段级 TTL</b>：listpackex 在 listpack 上叠加字段过期元数据（<span class="mono">listpackEx</span> 结构，t_hash.c:1598-1635）；8.x 支持单个 field 设置过期。</li>
+        <li><b>模板 hash（TMPL_LP / TMPL_ARRAY）</b>：对字段名高度重复的 hash，把 field 名提成共享模板、只存值，值落在 listpack 或 sds 数组（<span class="path">defrag.c:783</span> 有专门的分片整理实现）。</li>
+        <li><b>array 类型</b>：OBJ_ARRAY（server.h:898）+ SLICED_ARRAY 编码（object.h:88），支撑 8.x 向量/定长序列场景（t_array.c、vector.c）。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="index">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">09</span>
+      <span class="sec-title">核心源码索引</span>
+      <span class="sec-en">SOURCE INDEX</span>
+    </div>
+    <div class="idx">
+      <div class="idx-card"><span class="t">类型 / 编码常量</span><span class="f">server.h:875-903 · object.h:75-91</span><span class="d">OBJ_*_TYPE 与 OBJ_ENCODING_* 全部定义</span></div>
+      <div class="idx-card"><span class="t">对象结构</span><span class="f">object.h:102-127 · object.c:107</span><span class="d">redisObject / kvobj 与 createObject</span></div>
+      <div class="idx-card"><span class="t">编码名称映射</span><span class="f">object.c:1302 strEncoding</span><span class="d">OBJECT ENCODING 输出名</span></div>
+      <div class="idx-card"><span class="t">String 编码</span><span class="f">object.c:338-405 · :939-999</span><span class="d">int/embstr/raw 决策与 tryObjectEncoding</span></div>
+      <div class="idx-card"><span class="t">Hash 编码</span><span class="f">t_hash.c:1561 hashTypeTryConversion</span><span class="d">listpack → listpackex/tmpl → hashtable</span></div>
+      <div class="idx-card"><span class="t">Set 编码</span><span class="f">t_set.c:61 setTypeMaybeConvert · intset.c</span><span class="d">intset ↔ hashtable 单向升级</span></div>
+      <div class="idx-card"><span class="t">ZSet 编码</span><span class="f">t_zset.c:1439 zsetConvert · :326 zslInsert</span><span class="d">listpack ↔ skiplist+dict</span></div>
+      <div class="idx-card"><span class="t">List 编码</span><span class="f">t_list.c:113 · quicklist.c:134</span><span class="d">quicklist + listpack 节点</span></div>
+      <div class="idx-card"><span class="t">Stream 编码</span><span class="f">t_stream.c · rax.c · listpack.c</span><span class="d">rax + listpack</span></div>
+      <div class="idx-card"><span class="t">Array 类型</span><span class="f">t_array.c · object.h:169 createArrayObject</span><span class="d">8.x 新增，sliced-array 编码</span></div>
+      <div class="idx-card"><span class="t">阈值配置</span><span class="f">config.c:3400-3494</span><span class="d">list/hash/set/zset 的 max-*-entries/value</span></div>
+      <div class="idx-card"><span class="t">内省命令</span><span class="f">db.c:2187 typeCommand · object.c:1751 objectCommand</span><span class="d">TYPE / OBJECT 实现</span></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Redis 8.10.1 类型与编码笔记 · 源码位于 Database/redis</span>
+    <span>函数行号以当前仓库为准</span>
+  </div>
+</footer>
+
+<button id="topBtn" aria-label="回到顶部">↑</button>
+
+<script>
+(function(){
+  "use strict";
+  var chips = Array.prototype.slice.call(document.querySelectorAll('#nav .chip'));
+  var sections = chips.map(function(c){
+    var id = c.getAttribute('href').slice(1);
+    return document.getElementById(id);
+  }).filter(Boolean);
+  var topBtn = document.getElementById('topBtn');
+  var ticking = false;
+
+  function onScroll(){
+    if(!ticking){
+      requestAnimationFrame(function(){
+        var pos = window.scrollY || document.documentElement.scrollTop;
+        var active = 0;
+        for(var i=0;i<sections.length;i++){
+          if(sections[i] && sections[i].offsetTop - 90 <= pos) active = i;
+        }
+        chips.forEach(function(c,i){ c.classList.toggle('on', i===active); });
+        topBtn.classList.toggle('show', pos > 600);
+        ticking = false;
+      });
+      ticking = true;
+    }
+  }
+  window.addEventListener('scroll', onScroll, {passive:true});
+  onScroll();
+
+  topBtn.addEventListener('click', function(){ window.scrollTo({top:0, behavior:'smooth'}); });
+})();
+</script>
+</body>
+</html>
