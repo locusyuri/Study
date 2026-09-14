@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>执行引擎与字节码 · JVM 怎么把代码跑起来</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%236FC7DE'/%3E%3Ctext x='32' y='45' font-size='38' font-weight='700' text-anchor='middle' fill='%230F141B'%3EJ%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;900&display=swap">
+<style>
+  :root{
+    --bg:#0F141B;
+    --bg2:#141B24;
+    --card:#161E28;
+    --card2:#1B2531;
+    --text:#E7EAEE;
+    --text2:#9AA5B1;
+    --line:rgba(255,255,255,.07);
+    --mono:"Cascadia Code",ui-monospace,Consolas,"SF Mono",Menlo,monospace;
+    --c1:#E8A87C; /* JIT 橙 */
+    --c2:#7FB4E8; /* 解释执行 蓝 */
+    --c3:#6ECBA8; /* 优化 绿 */
+    --c4:#B98CE8; /* 字节码 紫 */
+    --c5:#6FC7DE; /* 执行引擎主色 青 */
+    --c6:#E88AA5; /* invokedynamic 玫红 */
+    --c7:#E3D27A; /* 观测 黄 */
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    font-size:15px;line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit;text-decoration:none;}
+  code, .path{
+    font-family:var(--mono);
+    font-size:.86em;
+  }
+  .path{
+    color:var(--text2);
+    background:rgba(0,0,0,.32);
+    border:1px solid rgba(255,255,255,.05);
+    padding:1px 6px;
+    border-radius:5px;
+    white-space:nowrap;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px;}
+
+  /* ===== 顶栏导航 ===== */
+  header{
+    position:sticky;top:0;z-index:50;
+    background:rgba(15,20,27,.88);
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .nav{display:flex;align-items:center;gap:8px;padding:10px 0;overflow-x:auto;scrollbar-width:none;}
+  .nav::-webkit-scrollbar{display:none;}
+  .brand{
+    font-weight:900;font-size:15px;letter-spacing:.5px;white-space:nowrap;
+    margin-right:10px;
+  }
+  .brand b{color:#6FC7DE;}
+  .chip{
+    flex:0 0 auto;
+    padding:4px 12px;border-radius:999px;
+    font-size:12.5px;color:var(--text2);
+    border:1px solid var(--line);
+    cursor:pointer;white-space:nowrap;
+    transition:color .15s,border-color .15s,background .15s;
+  }
+  .chip:hover{color:var(--text);border-color:rgba(255,255,255,.22);}
+  .chip.on{color:var(--text);background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.28);}
+  .chip .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;}
+
+  /* ===== Hero ===== */
+  .hero{padding:56px 0 44px;}
+  .hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:36px;align-items:center;}
+  .hero .kicker{
+    font-size:12.5px;letter-spacing:2px;color:var(--text2);
+    text-transform:uppercase;margin-bottom:14px;
+  }
+  .hero h1{font-size:38px;line-height:1.22;font-weight:900;letter-spacing:.5px;}
+  .hero h1 .hl{color:#6FC7DE;}
+  .hero .sub{margin-top:14px;color:var(--text2);font-size:15px;max-width:540px;}
+  .hero .sub b{color:var(--text);font-weight:600;}
+  .pillars{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap;}
+  .pillar{
+    border:1px solid var(--line);border-radius:10px;padding:10px 14px;
+    background:var(--card);flex:1 1 150px;min-width:0;
+  }
+  .pillar .n{font-size:11px;color:var(--text2);letter-spacing:1px;margin-bottom:3px;}
+  .pillar .t{font-size:13.5px;font-weight:600;}
+  .pillar .f{font-family:var(--mono);font-size:11.5px;color:var(--text2);margin-top:3px;display:block;}
+
+  .graph{position:relative;}
+  .graph svg{width:100%;height:auto;display:block;}
+  .graph .node{cursor:pointer;transition:opacity .15s;}
+  .graph .node:hover{opacity:.72;}
+  .graph text{font-family:"Noto Sans SC",sans-serif;user-select:none;}
+
+  /* ===== 区域区块 ===== */
+  .domain{padding:34px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .domain-head{display:flex;align-items:baseline;gap:12px;margin-bottom:6px;}
+  .domain-no{font-family:var(--mono);font-size:15px;font-weight:700;}
+  .domain-title{font-size:23px;font-weight:700;letter-spacing:.3px;}
+  .domain-en{font-size:12px;color:var(--text2);letter-spacing:1px;}
+  .domain-desc{color:var(--text2);font-size:13.5px;margin:4px 0 18px 40px;max-width:760px;}
+  .domain-desc b{color:var(--text);font-weight:600;}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;}
+  .card{
+    background:var(--card);border:1px solid var(--line);
+    border-radius:10px;padding:14px 16px;
+    display:flex;flex-direction:column;gap:8px;min-width:0;
+    transition:transform .15s,border-color .15s;
+  }
+  .card:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.16);}
+  .card .k{font-size:14.5px;font-weight:600;}
+  .card .d{font-size:12.5px;color:var(--text2);line-height:1.6;}
+  .card .s{font-size:12px;color:var(--text);}
+  .card .s .path{white-space:normal;word-break:break-all;}
+  .c1 .domain-no,.c1 .domain-title{color:var(--c1);}
+  .c2 .domain-no,.c2 .domain-title{color:var(--c2);}
+  .c3 .domain-no,.c3 .domain-title{color:var(--c3);}
+  .c4 .domain-no,.c4 .domain-title{color:var(--c4);}
+  .c5 .domain-no,.c5 .domain-title{color:var(--c5);}
+  .c6 .domain-no,.c6 .domain-title{color:var(--c6);}
+  .c7 .domain-no,.c7 .domain-title{color:var(--c7);}
+  .c1 .card{border-left:3px solid var(--c1);}
+  .c2 .card{border-left:3px solid var(--c2);}
+  .c3 .card{border-left:3px solid var(--c3);}
+  .c4 .card{border-left:3px solid var(--c4);}
+  .c5 .card{border-left:3px solid var(--c5);}
+  .c6 .card{border-left:3px solid var(--c6);}
+  .c7 .card{border-left:3px solid var(--c7);}
+
+  /* ===== 图表容器 ===== */
+  .fig{
+    background:var(--card2);border:1px solid var(--line);border-radius:10px;
+    padding:18px 20px;margin:16px 0 4px;
+  }
+  .fig h4{font-size:14px;font-weight:700;margin-bottom:4px;}
+  .fig .cap{font-size:12px;color:var(--text2);margin-bottom:14px;}
+  .fig svg{width:100%;height:auto;display:block;}
+
+  /* ===== 编译层次 ===== */
+  .tiers{display:grid;grid-template-columns:1fr;gap:8px;margin-top:4px;}
+  .tier{
+    display:grid;grid-template-columns:64px 1fr auto;align-items:center;gap:14px;
+    background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;
+  }
+  .tier .lv{
+    font-family:var(--mono);font-size:12px;font-weight:700;text-align:center;
+    background:rgba(255,255,255,.07);border-radius:6px;padding:6px 0;
+  }
+  .tier .nm{font-size:13.5px;font-weight:600;}
+  .tier .ds{font-size:12px;color:var(--text2);margin-top:2px;}
+  .tier .tag{font-size:11px;color:var(--text2);font-family:var(--mono);}
+  .tier.t0 .lv{color:var(--c2);}
+  .tier.t1 .lv{color:var(--c1);}
+  .tier.t2 .lv{color:var(--c1);}
+  .tier.t3 .lv{color:var(--c1);}
+  .tier.t4 .lv{color:var(--c3);}
+  .tier.t4{border-color:rgba(110,203,168,.4);}
+
+  /* ===== 命令卡片 ===== */
+  .cmd-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:6px;}
+  .cmd{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;}
+  .cmd .k{font-size:14px;font-weight:700;margin-bottom:6px;}
+  .cmd .k .c{color:var(--c7);}
+  .cmd pre{
+    font-family:var(--mono);font-size:12px;line-height:1.7;color:#C4E6F0;
+    background:rgba(0,0,0,.35);border:1px solid rgba(111,199,222,.2);
+    border-radius:6px;padding:10px 12px;white-space:pre;overflow-x:auto;margin-bottom:8px;
+  }
+  .cmd .d{font-size:12.5px;color:var(--text2);}
+
+  /* ===== 阅读路径 ===== */
+  .pathway{padding:40px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .pathway-title{font-size:23px;font-weight:700;margin-bottom:6px;}
+  .pathway-sub{color:var(--text2);font-size:13.5px;margin-bottom:20px;}
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;counter-reset:step;}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;position:relative;}
+  .step .no{
+    font-family:var(--mono);font-size:12px;font-weight:700;color:#0F141B;
+    background:var(--text);width:22px;height:22px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;margin-bottom:10px;
+  }
+  .step h5{font-size:14.5px;font-weight:700;margin-bottom:6px;}
+  .step p{font-size:12.5px;color:var(--text2);}
+  .step p .path{white-space:normal;}
+
+  /* ===== 页脚 ===== */
+  footer{border-top:1px solid var(--line);padding:28px 0 40px;color:var(--text2);font-size:12.5px;}
+  footer .wrap{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+
+  /* ===== 响应式 ===== */
+  @media (max-width:860px){
+    .hero{padding:38px 0 30px;}
+    .hero-grid{grid-template-columns:1fr;gap:24px;}
+    .hero h1{font-size:28px;}
+    .domain-desc{margin-left:0;}
+    .card .s .path{white-space:normal;}
+    .tier{grid-template-columns:52px 1fr;}
+    .tier .tag{display:none;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto;}
+    *{transition:none!important;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <div class="brand">JVM <b>执行引擎</b></div>
+    <div class="chip on" data-target="overview"><span class="dot" style="background:#6FC7DE"></span>总览</div>
+    <div class="chip" data-target="d1"><span class="dot" style="background:var(--c4)"></span>字节码</div>
+    <div class="chip" data-target="d2"><span class="dot" style="background:var(--c2)"></span>解释执行</div>
+    <div class="chip" data-target="d3"><span class="dot" style="background:var(--c1)"></span>JIT 编译</div>
+    <div class="chip" data-target="d4"><span class="dot" style="background:var(--c3)"></span>优化</div>
+    <div class="chip" data-target="d5"><span class="dot" style="background:var(--c6)"></span>invokedynamic</div>
+    <div class="chip" data-target="d6"><span class="dot" style="background:var(--c7)"></span>观测</div>
+    <div class="chip" data-target="d7"><span class="dot" style="background:var(--text2)"></span>验证实验</div>
+    <div class="chip" data-target="pathway"><span class="dot" style="background:var(--text2)"></span>阅读路径</div>
+  </div>
+</header>
+
+<!-- ===== Hero ===== -->
+<section class="hero" id="overview">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="kicker">JVM · Execution Engine · Deep Dive</div>
+      <h1>执行引擎与字节码<br><span class="hl">JVM 怎么把代码跑起来</span></h1>
+      <p class="sub">简单说：<b>字节码先被解释器逐条翻译执行，跑热的方法再被 JIT 编译成机器码直接执行</b>。两条通道的目标一致——把「跨平台的中间码」变成「这台 CPU 能跑的本机指令」。</p>
+      <div class="pillars">
+        <div class="pillar">
+          <div class="n">输入</div>
+          <div class="t">方法字节码</div>
+          <span class="f">约 200+ 条指令 · 栈式</span>
+        </div>
+        <div class="pillar">
+          <div class="n">双通道</div>
+          <div class="t">解释 + JIT</div>
+          <span class="f">C1 / C2 分层编译</span>
+        </div>
+        <div class="pillar">
+          <div class="n">输出</div>
+          <div class="t">机器码</div>
+          <span class="f">当前 CPU 原生指令</span>
+        </div>
+      </div>
+    </div>
+    <div class="graph" aria-label="执行引擎双通道全景图">
+      <svg viewBox="0 0 720 440" role="img" aria-hidden="true">
+        <!-- 左：字节码 -->
+        <g class="node" data-target="d1">
+          <rect x="20" y="120" width="180" height="180" rx="8" fill="#141B24" stroke="#B98CE8" stroke-width="1.4"/>
+          <text x="110" y="146" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">方法字节码</text>
+          <text x="42" y="174" fill="#C4B4DC" font-size="11.5" font-family="var(--mono)">iconst_1</text>
+          <text x="42" y="192" fill="#C4B4DC" font-size="11.5" font-family="var(--mono)">istore_1</text>
+          <text x="42" y="210" fill="#C4B4DC" font-size="11.5" font-family="var(--mono)">iload_1</text>
+          <text x="42" y="228" fill="#C4B4DC" font-size="11.5" font-family="var(--mono)">iload_2</text>
+          <text x="42" y="246" fill="#C4B4DC" font-size="11.5" font-family="var(--mono)">iadd</text>
+          <text x="42" y="264" fill="#C4B4DC" font-size="11.5" font-family="var(--mono)">ireturn</text>
+          <text x="110" y="288" text-anchor="middle" fill="#9AA5B1" font-size="11">栈式指令 · 与平台无关</text>
+        </g>
+
+        <!-- 中：双通道 -->
+        <g class="node" data-target="d2">
+          <rect x="236" y="60" width="220" height="120" rx="8" fill="#141B24" stroke="#7FB4E8" stroke-width="1.4"/>
+          <text x="346" y="88" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">解释器 Interpreter</text>
+          <text x="346" y="110" text-anchor="middle" fill="#9AA5B1" font-size="11">逐条取指 → 解码 → 执行</text>
+          <text x="346" y="128" text-anchor="middle" fill="#9AA5B1" font-size="11">启动快 · 执行慢</text>
+          <text x="346" y="150" text-anchor="middle" fill="#9AA5B1" font-size="11">模板解释器（HotSpot）</text>
+        </g>
+        <g class="node" data-target="d3">
+          <rect x="236" y="230" width="220" height="150" rx="8" fill="#141B24" stroke="#E8A87C" stroke-width="1.4"/>
+          <text x="346" y="258" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">JIT 编译器</text>
+          <text x="346" y="280" text-anchor="middle" fill="#9AA5B1" font-size="11">热点探测 → C1/C2</text>
+          <text x="346" y="298" text-anchor="middle" fill="#9AA5B1" font-size="11">编译成机器码缓存复用</text>
+          <text x="346" y="316" text-anchor="middle" fill="#9AA5B1" font-size="11">编译慢 · 执行快</text>
+          <text x="346" y="338" text-anchor="middle" fill="#9AA5B1" font-size="11">方法内联 · 逃逸分析</text>
+          <text x="346" y="362" text-anchor="middle" fill="#9AA5B1" font-size="11">-XX:CompileThreshold 触发</text>
+        </g>
+
+        <!-- 右：机器码 -->
+        <g class="node" data-target="d4">
+          <rect x="500" y="140" width="200" height="120" rx="8" fill="#141B24" stroke="#6ECBA8" stroke-width="1.4"/>
+          <text x="600" y="168" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">机器码 Native Code</text>
+          <text x="600" y="190" text-anchor="middle" fill="#9AA5B1" font-size="11">当前 CPU 原生指令</text>
+          <text x="600" y="208" text-anchor="middle" fill="#9AA5B1" font-size="11">Code Cache 缓存</text>
+          <text x="600" y="226" text-anchor="middle" fill="#9AA5B1" font-size="11">再次调用直接执行</text>
+        </g>
+
+        <!-- 箭头 -->
+        <defs>
+          <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="rgba(255,255,255,.45)"/>
+          </marker>
+        </defs>
+        <g stroke="rgba(255,255,255,.3)" stroke-width="1.4" fill="none">
+          <path d="M 200 170 C 220 170 220 120 234 120" marker-end="url(#arr)"/>
+          <path d="M 200 250 C 220 250 220 305 234 305" marker-end="url(#arr)"/>
+          <path d="M 456 120 C 482 120 482 170 498 185" marker-end="url(#arr)"/>
+          <path d="M 456 305 C 482 305 482 215 498 205" marker-end="url(#arr)"/>
+        </g>
+        <text x="346" y="212" text-anchor="middle" fill="#E88AA5" font-size="11" font-weight="600">热点方法（计数器达标）</text>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<main class="wrap">
+
+<!-- ===== ① 字节码与指令集 ===== -->
+<section class="domain c4" id="d1">
+  <div class="domain-head">
+    <span class="domain-no">01</span>
+    <span class="domain-title">字节码与指令集</span>
+    <span class="domain-en">BYTECODE &amp; INSTRUCTION SET</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>javac 把 Java 方法编译成一串字节码指令，全部基于「操作数栈」运算</b>——指令不直接操作寄存器，而是往栈上压值、从栈上取值。这是跨平台的关键设计。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">指令分类</div>
+      <div class="s"><span class="path">javap -c 反汇编</span></div>
+      <div class="d">加载/存储（iload/istore）、运算（iadd）、类型转换、对象创建（new）、字段访问（getfield）、方法调用（invoke*）、控制转移（if/goto）、异常、同步（monitorenter）。</div>
+    </div>
+    <div class="card">
+      <div class="k">栈式指令模型</div>
+      <div class="s"><span class="path">操作数栈深度编译期已定</span></div>
+      <div class="d">一条 iadd 弹出两个 int、压入一个 int；指令天然紧凑（多为 1 字节 opcode），JVM 不需要知道寄存器布局——平台无关性的来源。</div>
+    </div>
+    <div class="card">
+      <div class="k">方法描述符</div>
+      <div class="s"><span class="path">(II)I · (Ljava/lang/String;)V</span></div>
+      <div class="d">常量池里用描述符编码签名：参数类型+返回类型。invokevirtual 靠「常量池索引 + 描述符」找到目标方法——解析阶段的主角。</div>
+    </div>
+    <div class="card">
+      <div class="k">局部变量表槽位</div>
+      <div class="s"><span class="path">istore_1 · aload_0</span></div>
+      <div class="d">this 占 index 0；long/double 占两个槽位；指令集为前 4 个槽位提供无操作数快捷形式（iconst_0~5、istore_0~3）。</div>
+    </div>
+    <div class="card">
+      <div class="k">异常表</div>
+      <div class="s"><span class="path">javap -v · Exception table</span></div>
+      <div class="d">try-catch 编译为异常表条目（起始/结束/处理器偏移 + 捕获类型），异常抛出不靠 if，靠查表匹配处理器。</div>
+    </div>
+    <div class="card">
+      <div class="k">读字节码工具链</div>
+      <div class="s"><span class="path">javap · ASM · Byte Buddy · CFR 反编译</span></div>
+      <div class="d">javap 看官方字节码；ASM 读写（框架底层）；Byte Buddy 运行时生成；CFR 反编译回 Java——四件套覆盖「读-改-造-还原」。</div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h4>专题图：操作数栈如何执行 int sum = a + b</h4>
+    <p class="cap">左侧为 javap 反汇编结果；右侧三步展示操作数栈与局部变量表的变化。箭头 = 栈顶方向。</p>
+    <svg viewBox="0 0 720 300" role="img" aria-label="字节码操作数栈执行示意">
+      <!-- 左侧：反汇编 -->
+      <rect x="30" y="40" width="230" height="220" rx="10" fill="#161E28" stroke="#B98CE8" stroke-width="1.4"/>
+      <text x="145" y="68" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="700">javap -c</text>
+      <text x="50" y="100" fill="#C4B4DC" font-size="12" font-family="var(--mono)">0: iconst_1     // 压入 1</text>
+      <text x="50" y="124" fill="#C4B4DC" font-size="12" font-family="var(--mono)">1: istore_1     // 存入 a</text>
+      <text x="50" y="148" fill="#C4B4DC" font-size="12" font-family="var(--mono)">2: iconst_2     // 压入 2</text>
+      <text x="50" y="172" fill="#C4B4DC" font-size="12" font-family="var(--mono)">3: istore_2     // 存入 b</text>
+      <text x="50" y="196" fill="#C4B4DC" font-size="12" font-family="var(--mono)">4: iload_1      // 压入 a</text>
+      <text x="50" y="220" fill="#C4B4DC" font-size="12" font-family="var(--mono)">5: iload_2      // 压入 b</text>
+      <text x="50" y="244" fill="#C4B4DC" font-size="12" font-family="var(--mono)">6: iadd         // 相加</text>
+
+      <!-- 右侧：三帧栈变化 -->
+      <rect x="300" y="40" width="120" height="220" rx="10" fill="#161E28" stroke="rgba(255,255,255,.10)"/>
+      <text x="360" y="68" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="700">iload_1 后</text>
+      <rect x="316" y="150" width="88" height="34" rx="5" fill="rgba(185,140,232,.14)" stroke="rgba(185,140,232,.4)"/>
+      <text x="360" y="173" text-anchor="middle" fill="#D9C4F0" font-size="12" font-family="var(--mono)">a = 1</text>
+      <text x="360" y="222" text-anchor="middle" fill="#9AA5B1" font-size="11">栈顶 ↑</text>
+
+      <rect x="450" y="40" width="120" height="220" rx="10" fill="#161E28" stroke="rgba(255,255,255,.10)"/>
+      <text x="510" y="68" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="700">iload_2 后</text>
+      <rect x="466" y="112" width="88" height="34" rx="5" fill="rgba(185,140,232,.14)" stroke="rgba(185,140,232,.4)"/>
+      <text x="510" y="135" text-anchor="middle" fill="#D9C4F0" font-size="12" font-family="var(--mono)">b = 2</text>
+      <rect x="466" y="150" width="88" height="34" rx="5" fill="rgba(185,140,232,.14)" stroke="rgba(185,140,232,.4)"/>
+      <text x="510" y="173" text-anchor="middle" fill="#D9C4F0" font-size="12" font-family="var(--mono)">a = 1</text>
+
+      <rect x="600" y="40" width="120" height="220" rx="10" fill="#161E28" stroke="rgba(110,203,168,.35)"/>
+      <text x="660" y="68" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="700">iadd 后</text>
+      <rect x="616" y="150" width="88" height="34" rx="5" fill="rgba(110,203,168,.16)" stroke="rgba(110,203,168,.45)"/>
+      <text x="660" y="173" text-anchor="middle" fill="#BFE8D5" font-size="12" font-family="var(--mono)">sum = 3</text>
+      <text x="660" y="222" text-anchor="middle" fill="#9AA5B1" font-size="11">两操作数弹出</text>
+      <text x="660" y="240" text-anchor="middle" fill="#9AA5B1" font-size="11">结果压栈</text>
+    </svg>
+  </div>
+</section>
+
+<!-- ===== ② 解释执行 ===== -->
+<section class="domain c2" id="d2">
+  <div class="domain-head">
+    <span class="domain-no">02</span>
+    <span class="domain-title">解释执行</span>
+    <span class="domain-en">INTERPRETATION</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>解释器是「逐条翻译」的执行者：每执行一条字节码，都要经历取指 → 解码 → 执行</b>。它不产生编译缓存，胜在启动快、实现简单。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">解释循环</div>
+      <div class="s"><span class="path">HotSpot: interpreter/bytecodeInterpreter.cpp</span></div>
+      <div class="d">主循环 while：取 opcode → 查分发表 → 执行对应处理逻辑 → 更新 PC。每条指令一小段 C++ 逻辑，语义直观、无预热代价。</div>
+    </div>
+    <div class="card">
+      <div class="k">模板解释器</div>
+      <div class="s"><span class="path">interpreter/templateTable.cpp</span></div>
+      <div class="d">HotSpot 的优化：启动时为每条字节码生成一小段机器码模板，解释执行变成「跳进模板跑机器码」——比纯 C++ 循环快一个量级。</div>
+    </div>
+    <div class="card">
+      <div class="k">栈帧切换</div>
+      <div class="s"><span class="path">interpreter/ · 解释帧 vs 编译帧</span></div>
+      <div class="d">解释帧与 JIT 编译帧布局不同，方法调用需「桥接」（i2c/c2i 适配器）。混合执行时频繁切换有开销，是「逃逸分析 + 内联」能省掉的成本之一。</div>
+    </div>
+    <div class="card">
+      <div class="k">-Xint / -Xcomp / -Xmixed</div>
+      <div class="s"><span class="path">运行模式开关</span></div>
+      <div class="d">-Xint 纯解释（验证语义）；-Xcomp 强制编译（关闭热点，启动即全编译）；-Xmixed 混合（默认）。对比三者的启动与吞吐，直观感受解释 vs JIT。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ③ JIT 编译 ===== -->
+<section class="domain c1" id="d3">
+  <div class="domain-head">
+    <span class="domain-no">03</span>
+    <span class="domain-title">JIT 编译与分层编译</span>
+    <span class="domain-en">JIT &amp; TIERED COMPILATION</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>JIT（Just-In-Time）只在「热点方法」被调用足够多次后才编译</b>。现代 HotSpot 用 C1（快、带 profiling）和 C2（慢、极优化）分层协作。</p>
+  <div class="tiers">
+    <div class="tier t0">
+      <div class="lv">0</div>
+      <div class="nm">解释执行<small style="color:var(--text2)"> · 启动默认</small></div>
+      <div class="tag">无编译 · 启动即用</div>
+    </div>
+    <div class="tier t1">
+      <div class="lv">1</div>
+      <div class="nm">C1 简单编译<small style="color:var(--text2)"> · 无 profiling</small></div>
+      <div class="tag">-XX:TieredStopAtLevel=1 只到这层</div>
+    </div>
+    <div class="tier t2">
+      <div class="lv">2</div>
+      <div class="nm">C1 有限 profiling<small style="color:var(--text2)"> · 收集调用信息</small></div>
+      <div class="tag">方法计数器 + 分支计数器</div>
+    </div>
+    <div class="tier t3">
+      <div class="lv">3</div>
+      <div class="nm">C1 完全 profiling<small style="color:var(--text2)"> · 全量采集</small></div>
+      <div class="tag">为 C2 决策提供画像</div>
+    </div>
+    <div class="tier t4">
+      <div class="lv">4</div>
+      <div class="nm">C2 编译<small style="color:var(--text2)"> · 激进优化</small></div>
+      <div class="tag">-XX:CompileThreshold 触发 · 最终形态</div>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="k">热点探测</div>
+      <div class="s"><span class="path">runtime/compilationPolicy.cpp</span></div>
+      <div class="d">方法调用计数器 + 回边计数器（循环次数）：方法被调用/循环执行超过阈值即判定热点。-XX:CompileThreshold 默认 10000（C2）。</div>
+    </div>
+    <div class="card">
+      <div class="k">C1 编译器</div>
+      <div class="s"><span class="path">HotSpot: c1/</span></div>
+      <div class="d">客户端编译器：编译快、优化适度，同时采集 profiling 信息（分支走向、类型、去优化点）。第 1~3 层。</div>
+    </div>
+    <div class="card">
+      <div class="k">C2 编译器</div>
+      <div class="s"><span class="path">c2/ · -XX:MaxInlineSize</span></div>
+      <div class="d">服务端编译器：基于 profiling 做激进优化（内联、逃逸分析、向量化、循环变换）。编译耗时但执行最快，第 4 层。</div>
+    </div>
+    <div class="card">
+      <div class="k">Graal / AOT</div>
+      <div class="s"><span class="path">GraalVM · Native Image · -XX:+UseJVMCICompiler</span></div>
+      <div class="d">Graal 是 Java 写的 JIT（可替代 C2）；AOT（提前编译）把字节码预编译成镜像，启动毫秒级但失去动态优化——执行引擎的两条分支路线。</div>
+    </div>
+    <div class="card">
+      <div class="k">Code Cache</div>
+      <div class="s"><span class="path">-XX:ReservedCodeCacheSize</span></div>
+      <div class="d">机器码存放区，满了会退化（停止编译回解释）。-XX:+PrintCodeCache 观察占用；大型应用常需调大预留。</div>
+    </div>
+    <div class="card">
+      <div class="k">去优化</div>
+      <div class="s"><span class="path">deoptimize · uncommon trap</span></div>
+      <div class="d">编译假设被打破（如突然出现新子类、类型画像变化）时，把执行回退到解释器重新走——C2 激进优化的「后悔药」，保证正确性兜底。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ④ JIT 核心优化 ===== -->
+<section class="domain c3" id="d4">
+  <div class="domain-head">
+    <span class="domain-no">04</span>
+    <span class="domain-title">JIT 核心优化</span>
+    <span class="domain-en">KEY OPTIMIZATIONS</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>C2 的优化分两类——消除「调用成本」（内联）和消除「对象成本」（逃逸分析）</b>。看懂这两个，就理解了「为什么 Java 也能跑得很快」。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">方法内联</div>
+      <div class="s"><span class="path">-XX:MaxInlineSize=35 · -XX:MaxInlineLevel=9</span></div>
+      <div class="d">把被调方法体展开到调用处：省掉调用开销，让后续优化「看得更远」。getter/setter、小方法几乎必内联；大方法/虚调用受限。</div>
+    </div>
+    <div class="card">
+      <div class="k">逃逸分析</div>
+      <div class="s"><span class="path">c2/escapeAnalysis.cpp · -XX:+DoEscapeAnalysis</span></div>
+      <div class="d">证明对象不逃逸方法作用域后：栈上分配（省 GC）、标量替换（拆成字段）、锁消除（省同步）。JDK 里大量「局部小对象」因此零堆分配。</div>
+    </div>
+    <div class="card">
+      <div class="k">锁消除与粗化</div>
+      <div class="s"><span class="path">c2/ · 逃逸分析衍生</span></div>
+      <div class="d">对象不逃逸 → 去掉 synchronized；相邻同步块合并（粗化）减少加锁次数。StringBuffer、局部集合的同步往往被这样优化掉。</div>
+    </div>
+    <div class="card">
+      <div class="k">类型特化</div>
+      <div class="s"><span class="path">profile 驱动 · 单态/双态调用点</span></div>
+      <div class="d">基于 profiling 假设调用点只有一种实现，去虚化（把 invokevirtual 变成直接调用）；错了就去优化回退。虚调用不再「天生慢」。</div>
+    </div>
+    <div class="card">
+      <div class="k">循环与代数优化</div>
+      <div class="s"><span class="path">c2/loopopts.cpp</span></div>
+      <div class="d">循环展开、循环不变量外提、公共子表达式消除、强度削减（乘法→移位）。CPU 密集代码的主要加速来源。</div>
+    </div>
+    <div class="card">
+      <div class="k">向量化</div>
+      <div class="s"><span class="path">SuperWord · -XX:+UseSuperWord</span></div>
+      <div class="d">把标量循环转成 SIMD 向量指令（AVX 等），数组求和/拷贝类代码提速数倍；部分场景可用 Vector API（jdk.incubator.vector）显式表达。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑤ invokedynamic ===== -->
+<section class="domain c6" id="d5">
+  <div class="domain-head">
+    <span class="domain-no">05</span>
+    <span class="domain-title">invokedynamic 与 MethodHandle</span>
+    <span class="domain-en">INVOKEDYNAMIC &amp; METHOD HANDLE</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>普通方法调用在编译期就定死了调用点，invokedynamic 把「怎么调用」推迟到运行期由引导方法决定</b>——语言特性的后门。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">调用点 Call Site</div>
+      <div class="s"><span class="path">java.lang.invoke.CallSite · ConstantCallSite</span></div>
+      <div class="d">invokedynamic 指令执行时，先调引导方法（bootstrap method）生成 CallSite，CallSite 持有目标 MethodHandle，之后按句柄调用。</div>
+    </div>
+    <div class="card">
+      <div class="k">引导方法</div>
+      <div class="s"><span class="path">BootstrapMethods 属性 · LambdaMetafactory</span></div>
+      <div class="d">常量池存 BootstrapMethods 表；Lambda 表达式由 LambdaMetafactory 引导生成实现类与句柄，String 拼接（JDK 9+）由 StringConcatFactory 引导。</div>
+    </div>
+    <div class="card">
+      <div class="k">MethodHandle</div>
+      <div class="s"><span class="path">java.lang.invoke.MethodHandles.Lookup</span></div>
+      <div class="d">「可传递的方法指针」：类型签名 + 句柄绑定；比反射更快（编译期可优化），是框架层替代反射的新选项。</div>
+    </div>
+    <div class="card">
+      <div class="k">为什么需要它</div>
+      <div class="s"><span class="path">JSR 292 · 动态语言/特性支持</span></div>
+      <div class="d">Lambda、模式匹配、序列化、动态代理、字符串拼接……都靠它把「语言语义」翻译成「JVM 语义」，且不牺牲 JIT 优化（调用点可被去虚化）。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑥ 观测编译产物 ===== -->
+<section class="domain c7" id="d6">
+  <div class="domain-head">
+    <span class="domain-no">06</span>
+    <span class="domain-title">观测编译产物</span>
+    <span class="domain-en">OBSERVING COMPILATION</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>JIT 是黑盒，但 PrintCompilation 能把「谁被编译了、为何内联失败」变成日志</b>。性能归因的第一步，就是看编译日志。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">PrintCompilation</div>
+      <div class="s"><span class="path">-XX:+PrintCompilation</span></div>
+      <div class="d">每行一条编译记录：时间戳、方法、编译层、大小、是否 OSR（循环内编译）。观察「哪些方法进了第 4 层」。</div>
+    </div>
+    <div class="card">
+      <div class="k">PrintInlining</div>
+      <div class="s"><span class="path">-XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining</span></div>
+      <div class="d">内联决策树：谁内联进谁、因「方法太大/调用点太热/接口调用」等被拒绝——回答「为什么这行代码慢」的利器。</div>
+    </div>
+    <div class="card">
+      <div class="k">JITWatch</div>
+      <div class="s"><span class="path">AdoptOpenJDK 开源工具 · 解析编译日志</span></div>
+      <div class="d">把 PrintCompilation/PrintInlining 输出可视化：源码↔字节码↔汇编 三栏对照，看一段代码最终编译成了什么。</div>
+    </div>
+    <div class="card">
+      <div class="k">-XX:+PrintAssembly</div>
+      <div class="s"><span class="path">需 hsdis 插件 · 反汇编机器码</span></div>
+      <div class="d">直接看 JIT 生成的汇编（含注释标注源行），向量化/标量替换一目了然；需要下载 hsdis-amd64 放入 JDK bin。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑦ 验证实验 ===== -->
+<section class="domain c2" id="d7">
+  <div class="domain-head">
+    <span class="domain-no">07</span>
+    <span class="domain-title">验证实验：亲手看 JIT</span>
+    <span class="domain-en">VERIFY WITH TOOLS</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>写一个会被反复调用的方法，用 PrintCompilation 亲眼看到它从解释进入 C2</b>。看一次编译日志，胜过背十遍理论。</p>
+  <div class="cmd-grid">
+    <div class="cmd">
+      <div class="k"><span class="c">javap</span> · 读自己的字节码</div>
+      <pre>javap -c -p MyClass.class
+javap -v MyClass.class</pre>
+      <div class="d">-c 看指令序列、-v 看常量池与异常表。找一个写过的类，把「源码 → 字节码」对应起来。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">PrintCompilation</span> · 看编译发生</div>
+      <pre>java -XX:+PrintCompilation HotDemo</pre>
+      <div class="d">热循环跑几秒后刷新日志：方法名后出现第 2/3/4 层编译记录；对每个方法观察「从解释到 C2」的升级过程。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">PrintInlining</span> · 看内联决策</div>
+      <pre>java -XX:+UnlockDiagnosticVMOptions \
+     -XX:+PrintInlining HotDemo</pre>
+      <div class="d">getter/setter 应显示 @ inline 成功；大方法显示 too big / callee too big。对照 -XX:MaxInlineSize 调整验证。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">-Xint vs 默认</span> · 体感差距</div>
+      <pre>java -Xint HotDemo
+java HotDemo</pre>
+      <div class="d">同一段热循环：-Xint 纯解释明显更慢；默认混合模式跑起来后大幅提速——解释 vs JIT 的直观对比实验。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">对象分配观测</span> · 逃逸分析生效</div>
+      <pre>java -Xlog:gc -Xmx128m EscapeDemo</pre>
+      <div class="d">循环里 new 一个不逃逸的 Point：GC 日志几乎无分配压力；改用 -XX:-DoEscapeAnalysis 关闭后立刻开始频繁 GC——标量替换的实证。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">JITWatch</span> · 可视化编译</div>
+      <pre>java -XX:+UnlockDiagnosticVMOptions \
+  -XX:+PrintCompilation -XX:+PrintInlining \
+  -XX:+PrintAssembly -XX:LogFile=jit.log HotDemo</pre>
+      <div class="d">导出完整日志喂给 JITWatch，在「源码/字节码/汇编」三栏里追踪一个方法的完整编译旅程。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 阅读路径 ===== -->
+<section class="pathway" id="pathway">
+  <div class="wrap" style="padding:0;">
+    <div class="pathway-title">建议阅读路径</div>
+    <p class="pathway-sub">从「看得懂字节码」到「看得懂编译日志」：先用 javap 建立指令直觉，再用 PrintCompilation 建立 JIT 直觉，最后读优化原理与源码。</p>
+    <div class="steps">
+      <div class="step">
+        <div class="no">1</div>
+        <h5>读懂字节码</h5>
+        <p>javap -c 反汇编一个类：操作数栈模型、方法描述符、异常表；写 if/循环/异常案例对照。</p>
+      </div>
+      <div class="step">
+        <div class="no">2</div>
+        <h5>体感解释 vs JIT</h5>
+        <p>-Xint 与默认模式跑同一热循环对比耗时；-verbose:class 之外再开 -XX:+PrintCompilation 看编译发生。</p>
+      </div>
+      <div class="step">
+        <div class="no">3</div>
+        <h5>理解分层编译</h5>
+        <p>C1/C2 各层职责与触发阈值 → 观察方法逐层升级 → 用 -XX:TieredStopAtLevel 限制层次对比性能。</p>
+      </div>
+      <div class="step">
+        <div class="no">4</div>
+        <h5>吃透两大优化</h5>
+        <p>方法内联（PrintInlining 验证）→ 逃逸分析（EscapeDemo + GC 日志验证）→ 类型特化与去优化。</p>
+      </div>
+      <div class="step">
+        <div class="no">5</div>
+        <h5>认识 invokedynamic</h5>
+        <p>javap -v 看 Lambda 的 BootstrapMethods → 读 java.lang.invoke 源码 → 理解 StringConcatFactory。</p>
+      </div>
+      <div class="step">
+        <div class="no">6</div>
+        <h5>回到总览</h5>
+        <p>回 <span class="path">OVERVIEW.html</span>，把执行引擎放回「类加载 → 内存 → 执行 → GC」链路；对照 class-loading.html 看字节码从哪里来。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>OpenJDK 21.0.2 (HotSpot) · 执行引擎专题 · 知识源：JDK 自带 src.zip + OpenJDK 主线源码路径</span>
+    <span>HotSpot 路径标注为在线浏览参考 · 未 clone OpenJDK 仓库</span>
+  </div>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  var chips = Array.prototype.slice.call(document.querySelectorAll(".chip"));
+  var nodes = Array.prototype.slice.call(document.querySelectorAll(".graph .node"));
+  var targets = ["overview","d1","d2","d3","d4","d5","d6","d7","pathway"];
+
+  function setActive(id){
+    chips.forEach(function(c){ c.classList.toggle("on", c.getAttribute("data-target") === id); });
+  }
+  function jump(id){
+    var el = document.getElementById(id);
+    if(el){ el.scrollIntoView({behavior:"smooth", block:"start"}); setActive(id); }
+  }
+  chips.forEach(function(c){
+    c.addEventListener("click", function(){ jump(c.getAttribute("data-target")); });
+  });
+  nodes.forEach(function(n){
+    n.addEventListener("click", function(){ jump(n.getAttribute("data-target")); });
+  });
+
+  var sections = targets.map(function(id){ return document.getElementById(id); });
+  if("IntersectionObserver" in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){ setActive(en.target.id); }
+      });
+    }, {rootMargin:"-20% 0px -70% 0px"});
+    sections.forEach(function(s){ if(s) io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>
