@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>垃圾回收 · JVM 内存的自动管家</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%236FC7DE'/%3E%3Ctext x='32' y='45' font-size='38' font-weight='700' text-anchor='middle' fill='%230F141B'%3EJ%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;900&display=swap">
+<style>
+  :root{
+    --bg:#0F141B;
+    --bg2:#141B24;
+    --card:#161E28;
+    --card2:#1B2531;
+    --text:#E7EAEE;
+    --text2:#9AA5B1;
+    --line:rgba(255,255,255,.07);
+    --mono:"Cascadia Code",ui-monospace,Consolas,"SF Mono",Menlo,monospace;
+    --c1:#E8A87C; /* 分代收集器 橙 */
+    --c2:#7FB4E8; /* 回收算法 蓝 */
+    --c3:#6ECBA8; /* 判定 绿 */
+    --c4:#B98CE8; /* GC 主色 紫 */
+    --c5:#6FC7DE; /* G1 青 */
+    --c6:#E88AA5; /* ZGC 玫红 */
+    --c7:#E3D27A; /* 调优 黄 */
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    font-size:15px;line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit;text-decoration:none;}
+  code, .path{
+    font-family:var(--mono);
+    font-size:.86em;
+  }
+  .path{
+    color:var(--text2);
+    background:rgba(0,0,0,.32);
+    border:1px solid rgba(255,255,255,.05);
+    padding:1px 6px;
+    border-radius:5px;
+    white-space:nowrap;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px;}
+
+  /* ===== 顶栏导航 ===== */
+  header{
+    position:sticky;top:0;z-index:50;
+    background:rgba(15,20,27,.88);
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .nav{display:flex;align-items:center;gap:8px;padding:10px 0;overflow-x:auto;scrollbar-width:none;}
+  .nav::-webkit-scrollbar{display:none;}
+  .brand{
+    font-weight:900;font-size:15px;letter-spacing:.5px;white-space:nowrap;
+    margin-right:10px;
+  }
+  .brand b{color:#6FC7DE;}
+  .chip{
+    flex:0 0 auto;
+    padding:4px 12px;border-radius:999px;
+    font-size:12.5px;color:var(--text2);
+    border:1px solid var(--line);
+    cursor:pointer;white-space:nowrap;
+    transition:color .15s,border-color .15s,background .15s;
+  }
+  .chip:hover{color:var(--text);border-color:rgba(255,255,255,.22);}
+  .chip.on{color:var(--text);background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.28);}
+  .chip .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;}
+
+  /* ===== Hero ===== */
+  .hero{padding:56px 0 44px;}
+  .hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:36px;align-items:center;}
+  .hero .kicker{
+    font-size:12.5px;letter-spacing:2px;color:var(--text2);
+    text-transform:uppercase;margin-bottom:14px;
+  }
+  .hero h1{font-size:38px;line-height:1.22;font-weight:900;letter-spacing:.5px;}
+  .hero h1 .hl{color:#6FC7DE;}
+  .hero .sub{margin-top:14px;color:var(--text2);font-size:15px;max-width:540px;}
+  .hero .sub b{color:var(--text);font-weight:600;}
+  .pillars{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap;}
+  .pillar{
+    border:1px solid var(--line);border-radius:10px;padding:10px 14px;
+    background:var(--card);flex:1 1 150px;min-width:0;
+  }
+  .pillar .n{font-size:11px;color:var(--text2);letter-spacing:1px;margin-bottom:3px;}
+  .pillar .t{font-size:13.5px;font-weight:600;}
+  .pillar .f{font-family:var(--mono);font-size:11.5px;color:var(--text2);margin-top:3px;display:block;}
+
+  .graph{position:relative;}
+  .graph svg{width:100%;height:auto;display:block;}
+  .graph .node{cursor:pointer;transition:opacity .15s;}
+  .graph .node:hover{opacity:.72;}
+  .graph text{font-family:"Noto Sans SC",sans-serif;user-select:none;}
+
+  /* ===== 区域区块 ===== */
+  .domain{padding:34px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .domain-head{display:flex;align-items:baseline;gap:12px;margin-bottom:6px;}
+  .domain-no{font-family:var(--mono);font-size:15px;font-weight:700;}
+  .domain-title{font-size:23px;font-weight:700;letter-spacing:.3px;}
+  .domain-en{font-size:12px;color:var(--text2);letter-spacing:1px;}
+  .domain-desc{color:var(--text2);font-size:13.5px;margin:4px 0 18px 40px;max-width:760px;}
+  .domain-desc b{color:var(--text);font-weight:600;}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;}
+  .card{
+    background:var(--card);border:1px solid var(--line);
+    border-radius:10px;padding:14px 16px;
+    display:flex;flex-direction:column;gap:8px;min-width:0;
+    transition:transform .15s,border-color .15s;
+  }
+  .card:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.16);}
+  .card .k{font-size:14.5px;font-weight:600;}
+  .card .d{font-size:12.5px;color:var(--text2);line-height:1.6;}
+  .card .s{font-size:12px;color:var(--text);}
+  .card .s .path{white-space:normal;word-break:break-all;}
+  .c1 .domain-no,.c1 .domain-title{color:var(--c1);}
+  .c2 .domain-no,.c2 .domain-title{color:var(--c2);}
+  .c3 .domain-no,.c3 .domain-title{color:var(--c3);}
+  .c4 .domain-no,.c4 .domain-title{color:var(--c4);}
+  .c5 .domain-no,.c5 .domain-title{color:var(--c5);}
+  .c6 .domain-no,.c6 .domain-title{color:var(--c6);}
+  .c7 .domain-no,.c7 .domain-title{color:var(--c7);}
+  .c1 .card{border-left:3px solid var(--c1);}
+  .c2 .card{border-left:3px solid var(--c2);}
+  .c3 .card{border-left:3px solid var(--c3);}
+  .c4 .card{border-left:3px solid var(--c4);}
+  .c5 .card{border-left:3px solid var(--c5);}
+  .c6 .card{border-left:3px solid var(--c6);}
+  .c7 .card{border-left:3px solid var(--c7);}
+
+  /* ===== 图表容器 ===== */
+  .fig{
+    background:var(--card2);border:1px solid var(--line);border-radius:10px;
+    padding:18px 20px;margin:16px 0 4px;
+  }
+  .fig h4{font-size:14px;font-weight:700;margin-bottom:4px;}
+  .fig .cap{font-size:12px;color:var(--text2);margin-bottom:14px;}
+  .fig svg{width:100%;height:auto;display:block;}
+
+  /* ===== 时间轴 ===== */
+  .tl{display:grid;grid-template-columns:96px 1fr;gap:0 18px;margin-top:6px;}
+  .tl-item{display:contents;}
+  .tl-time{
+    font-family:var(--mono);font-size:12.5px;font-weight:700;color:var(--c4);
+    text-align:right;padding:10px 0;white-space:nowrap;
+  }
+  .tl-body{
+    position:relative;padding:10px 0 10px 18px;border-left:2px solid rgba(185,140,232,.35);
+  }
+  .tl-body::before{
+    content:"";position:absolute;left:-6px;top:16px;
+    width:10px;height:10px;border-radius:50%;
+    background:var(--c4);
+  }
+  .tl-body b{font-size:14px;display:block;margin-bottom:2px;}
+  .tl-body span{font-size:12.5px;color:var(--text2);display:block;}
+
+  /* ===== 对比表 ===== */
+  .tbl-wrap{overflow-x:auto;margin-top:6px;}
+  table.tbl{
+    width:100%;border-collapse:collapse;table-layout:fixed;
+    font-size:13px;background:var(--card2);border-radius:10px;overflow:hidden;
+  }
+  table.tbl th{
+    background:rgba(255,255,255,.06);text-align:left;
+    padding:10px 12px;font-weight:700;font-size:12.5px;letter-spacing:.5px;
+  }
+  table.tbl td{padding:10px 12px;border-top:1px solid var(--line);color:var(--text);vertical-align:top;}
+  table.tbl td .m{color:var(--text2);}
+  table.tbl td code{color:#D9C4F0;font-size:.9em;}
+  .th-algo{width:16%;}
+  .th-detail{width:30%;}
+  .th-pro{width:19%;}
+  .th-con{width:18%;}
+  .th-use{width:17%;}
+
+  /* ===== 命令卡片 ===== */
+  .cmd-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:6px;}
+  .cmd{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;}
+  .cmd .k{font-size:14px;font-weight:700;margin-bottom:6px;}
+  .cmd .k .c{color:var(--c7);}
+  .cmd pre{
+    font-family:var(--mono);font-size:12px;line-height:1.7;color:#C4E6F0;
+    background:rgba(0,0,0,.35);border:1px solid rgba(111,199,222,.2);
+    border-radius:6px;padding:10px 12px;white-space:pre;overflow-x:auto;margin-bottom:8px;
+  }
+  .cmd .d{font-size:12.5px;color:var(--text2);}
+
+  /* ===== 阅读路径 ===== */
+  .pathway{padding:40px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .pathway-title{font-size:23px;font-weight:700;margin-bottom:6px;}
+  .pathway-sub{color:var(--text2);font-size:13.5px;margin-bottom:20px;}
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;counter-reset:step;}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;position:relative;}
+  .step .no{
+    font-family:var(--mono);font-size:12px;font-weight:700;color:#0F141B;
+    background:var(--text);width:22px;height:22px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;margin-bottom:10px;
+  }
+  .step h5{font-size:14.5px;font-weight:700;margin-bottom:6px;}
+  .step p{font-size:12.5px;color:var(--text2);}
+  .step p .path{white-space:normal;}
+
+  /* ===== 页脚 ===== */
+  footer{border-top:1px solid var(--line);padding:28px 0 40px;color:var(--text2);font-size:12.5px;}
+  footer .wrap{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+
+  /* ===== 响应式 ===== */
+  @media (max-width:860px){
+    .hero{padding:38px 0 30px;}
+    .hero-grid{grid-template-columns:1fr;gap:24px;}
+    .hero h1{font-size:28px;}
+    .domain-desc{margin-left:0;}
+    .card .s .path{white-space:normal;}
+    .tl{grid-template-columns:78px 1fr;}
+    .tl-time{font-size:11.5px;}
+    table.tbl{font-size:12px;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto;}
+    *{transition:none!important;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <div class="brand">JVM <b>垃圾回收</b></div>
+    <div class="chip on" data-target="overview"><span class="dot" style="background:#6FC7DE"></span>总览</div>
+    <div class="chip" data-target="d1"><span class="dot" style="background:var(--c3)"></span>可达性判定</div>
+    <div class="chip" data-target="d2"><span class="dot" style="background:var(--c2)"></span>回收算法</div>
+    <div class="chip" data-target="d3"><span class="dot" style="background:var(--c1)"></span>分代与收集器</div>
+    <div class="chip" data-target="d4"><span class="dot" style="background:var(--c5)"></span>G1</div>
+    <div class="chip" data-target="d5"><span class="dot" style="background:var(--c6)"></span>ZGC</div>
+    <div class="chip" data-target="d6"><span class="dot" style="background:var(--c7)"></span>GC 调优</div>
+    <div class="chip" data-target="d7"><span class="dot" style="background:var(--text2)"></span>验证实验</div>
+    <div class="chip" data-target="pathway"><span class="dot" style="background:var(--text2)"></span>阅读路径</div>
+  </div>
+</header>
+
+<!-- ===== Hero ===== -->
+<section class="hero" id="overview">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="kicker">JVM · Garbage Collection · Deep Dive</div>
+      <h1>垃圾回收<br><span class="hl">JVM 内存的自动管家</span></h1>
+      <p class="sub">简单说：<b>GC 从「根」出发做可达性分析，不可达的对象就是垃圾；再用合适的算法腾出空间</b>。收集器的进化史，就是「尽量少停顿、少浪费」的历史。</p>
+      <div class="pillars">
+        <div class="pillar">
+          <div class="n">判定</div>
+          <div class="t">可达性分析</div>
+          <span class="f">GC Roots 遍历对象图</span>
+        </div>
+        <div class="pillar">
+          <div class="n">算法</div>
+          <div class="t">标记-清除 / 复制 / 整理</div>
+          <span class="f">按代组合使用</span>
+        </div>
+        <div class="pillar">
+          <div class="n">收集器</div>
+          <div class="t">Parallel / G1 / ZGC</div>
+          <span class="f">吞吐 ↔ 延迟权衡</span>
+        </div>
+      </div>
+    </div>
+    <div class="graph" aria-label="垃圾回收全景图">
+      <svg viewBox="0 0 720 440" role="img" aria-hidden="true">
+        <!-- 左：对象图 -->
+        <g class="node" data-target="d1">
+          <rect x="20" y="60" width="180" height="320" rx="8" fill="#141B24" stroke="#6ECBA8" stroke-width="1.4"/>
+          <text x="110" y="88" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">堆中的对象图</text>
+          <!-- 可达对象 -->
+          <circle cx="62" cy="150" r="22" fill="rgba(110,203,168,.12)" stroke="rgba(110,203,168,.55)"/>
+          <text x="62" y="155" text-anchor="middle" fill="#BFE8D5" font-size="11">A</text>
+          <circle cx="128" cy="150" r="22" fill="rgba(110,203,168,.12)" stroke="rgba(110,203,168,.55)"/>
+          <text x="128" y="155" text-anchor="middle" fill="#BFE8D5" font-size="11">B</text>
+          <circle cx="95" cy="240" r="22" fill="rgba(110,203,168,.12)" stroke="rgba(110,203,168,.55)"/>
+          <text x="95" y="245" text-anchor="middle" fill="#BFE8D5" font-size="11">C</text>
+          <circle cx="62" cy="320" r="22" fill="rgba(110,203,168,.12)" stroke="rgba(110,203,168,.55)"/>
+          <text x="62" y="325" text-anchor="middle" fill="#BFE8D5" font-size="11">D</text>
+          <!-- 不可达对象 -->
+          <circle cx="152" cy="320" r="22" fill="rgba(232,138,165,.10)" stroke="rgba(232,138,165,.5)" stroke-dasharray="4 3"/>
+          <text x="152" y="325" text-anchor="middle" fill="#F0C4D4" font-size="11">E</text>
+          <!-- 引用 -->
+          <g stroke="rgba(255,255,255,.28)" stroke-width="1.2" fill="none">
+            <path d="M 82 162 L 108 162" marker-end="url(#arr2)"/>
+            <path d="M 118 170 C 110 200 104 220 100 238" marker-end="url(#arr2)"/>
+            <path d="M 84 262 C 74 286 68 300 64 316" marker-end="url(#arr2)"/>
+          </g>
+          <text x="110" y="365" text-anchor="middle" fill="#9AA5B1" font-size="11">实线=可达 · 虚线=垃圾</text>
+        </g>
+
+        <!-- 中：判定与回收 -->
+        <g class="node" data-target="d1">
+          <rect x="236" y="60" width="220" height="140" rx="8" fill="#141B24" stroke="#6ECBA8" stroke-width="1.4"/>
+          <text x="346" y="88" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">可达性分析</text>
+          <text x="346" y="110" text-anchor="middle" fill="#9AA5B1" font-size="11">GC Roots 出发遍历</text>
+          <text x="346" y="128" text-anchor="middle" fill="#9AA5B1" font-size="11">不可达 = 垃圾</text>
+          <text x="346" y="150" text-anchor="middle" fill="#9AA5B1" font-size="11">引用计数有循环引用缺陷</text>
+          <text x="346" y="180" text-anchor="middle" fill="#9AA5B1" font-size="11">→ JVM 弃用引用计数</text>
+        </g>
+        <g class="node" data-target="d2">
+          <rect x="236" y="240" width="220" height="140" rx="8" fill="#141B24" stroke="#7FB4E8" stroke-width="1.4"/>
+          <text x="346" y="268" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">回收算法</text>
+          <text x="346" y="290" text-anchor="middle" fill="#9AA5B1" font-size="11">标记-清除 · 有碎片</text>
+          <text x="346" y="308" text-anchor="middle" fill="#9AA5B1" font-size="11">复制 · 无碎片耗空间</text>
+          <text x="346" y="326" text-anchor="middle" fill="#9AA5B1" font-size="11">标记-整理 · 移动对象</text>
+          <text x="346" y="360" text-anchor="middle" fill="#9AA5B1" font-size="11">分代 = 三种组合拳</text>
+        </g>
+
+        <!-- 右：收集器 -->
+        <g class="node" data-target="d3">
+          <rect x="500" y="60" width="200" height="320" rx="8" fill="#141B24" stroke="#E8A87C" stroke-width="1.4"/>
+          <text x="600" y="88" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">收集器矩阵</text>
+          <rect x="522" y="106" width="156" height="46" rx="6" fill="rgba(232,168,124,.08)" stroke="rgba(232,168,124,.35)"/>
+          <text x="600" y="126" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">Parallel</text>
+          <text x="600" y="144" text-anchor="middle" fill="#9AA5B1" font-size="10.5">吞吐优先 · 默认 8 代</text>
+          <rect x="522" y="162" width="156" height="46" rx="6" fill="rgba(111,199,222,.08)" stroke="rgba(111,199,222,.35)"/>
+          <text x="600" y="182" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">G1</text>
+          <text x="600" y="200" text-anchor="middle" fill="#9AA5B1" font-size="10.5">JDK 9+ 默认 · Region</text>
+          <rect x="522" y="218" width="156" height="46" rx="6" fill="rgba(232,138,165,.08)" stroke="rgba(232,138,165,.35)"/>
+          <text x="600" y="238" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">ZGC</text>
+          <text x="600" y="256" text-anchor="middle" fill="#9AA5B1" font-size="10.5">毫秒级停顿 · 大堆</text>
+          <rect x="522" y="274" width="156" height="46" rx="6" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.14)"/>
+          <text x="600" y="294" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">Serial / CMS</text>
+          <text x="600" y="312" text-anchor="middle" fill="#9AA5B1" font-size="10.5">历史 · 单线程/已废弃</text>
+          <text x="600" y="356" text-anchor="middle" fill="#9AA5B1" font-size="11">吞吐 ↔ 延迟 权衡</text>
+        </g>
+
+        <!-- 箭头 -->
+        <defs>
+          <marker id="arr2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="rgba(255,255,255,.3)"/>
+          </marker>
+        </defs>
+        <g stroke="rgba(255,255,255,.3)" stroke-width="1.4" fill="none">
+          <path d="M 200 200 C 220 200 220 130 234 130" marker-end="url(#arr2)"/>
+          <path d="M 456 130 C 484 130 484 200 498 200" marker-end="url(#arr2)"/>
+          <path d="M 456 310 C 484 310 484 220 498 220" marker-end="url(#arr2)"/>
+        </g>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<main class="wrap">
+
+<!-- ===== ① 可达性判定 ===== -->
+<section class="domain c3" id="d1">
+  <div class="domain-head">
+    <span class="domain-no">01</span>
+    <span class="domain-title">可达性判定</span>
+    <span class="domain-en">REACHABILITY ANALYSIS</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>「是不是垃圾」不看引用计数，而看「从根出发能不能走到」</b>。走得到的是活对象，走不到的就是垃圾——这天然解决了循环引用问题。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">GC Roots 集合</div>
+      <div class="s"><span class="path">栈帧局部变量 · 静态字段 · JNI 引用</span></div>
+      <div class="d">正在执行的方法里的引用、类的静态字段、JNI 全局/局部引用、运行时常量池引用、同步监视器、JVM 内部引用（System Class 等）。</div>
+    </div>
+    <div class="card">
+      <div class="k">为什么不用引用计数</div>
+      <div class="s"><span class="path">循环引用：A↔B 彼此计数为 1 却无人可达</span></div>
+      <div class="d">引用计数需每次赋值维护计数、无法处理循环引用、还有额外空间开销；可达性分析从根遍历，循环引用自然判死。Python 用计数+额外机制，JVM 直接选可达性。</div>
+    </div>
+    <div class="card">
+      <div class="k">强引用</div>
+      <div class="s"><span class="path">Object obj = new Object()</span></div>
+      <div class="d">默认引用类型：可达即存活，GC 绝不回收。内存泄漏的本质，就是「本该死的对象被强引用链拴着」。</div>
+    </div>
+    <div class="card">
+      <div class="k">软 / 弱 / 虚引用</div>
+      <div class="s"><span class="path">java.lang.ref.Soft/Weak/PhantomReference</span></div>
+      <div class="d">软引用：内存不足才回收（缓存场景）；弱引用：下次 GC 即回收（ThreadLocal 的 key）；虚引用：拿不到对象仅收通知（DirectByteBuffer 清理）。都配 ReferenceQueue。</div>
+    </div>
+    <div class="card">
+      <div class="k">finalize 与 Cleaner</div>
+      <div class="s"><span class="path">java.lang.Object.finalize · java.lang.ref.Cleaner</span></div>
+      <div class="d">finalize 已废弃（JDK 9 起 @Deprecated，执行时机不可控）；Cleaner 基于 PhantomReference 做确定性清理，是资源释放的现代姿势。</div>
+    </div>
+    <div class="card">
+      <div class="k">三色标记</div>
+      <div class="s"><span class="path">并发标记的核心抽象</span></div>
+      <div class="d">白=未访问、灰=正在访问、黑=访问完成。并发标记最怕「灰→白」漏标；SATB 快照与写屏障就是为堵这个洞（G1 章节详述）。</div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h4>专题图：从 GC Roots 出发的引用图</h4>
+    <p class="cap">实线 = 可达引用，虚线圆 = 不可达（垃圾）。注意 E 虽然被 D 引用，但 D 自身不可达，E 也随之下沉为垃圾——循环引用同理判死。</p>
+    <svg viewBox="0 0 720 300" role="img" aria-label="可达性分析对象引用图">
+      <!-- GC Roots 列表 -->
+      <rect x="30" y="40" width="150" height="220" rx="10" fill="#161E28" stroke="#6ECBA8" stroke-width="1.4"/>
+      <text x="105" y="68" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="700">GC Roots</text>
+      <text x="48" y="98" fill="#9AA5B1" font-size="11.5">栈帧局部变量</text>
+      <text x="48" y="122" fill="#9AA5B1" font-size="11.5">静态字段</text>
+      <text x="48" y="146" fill="#9AA5B1" font-size="11.5">JNI 引用</text>
+      <text x="48" y="170" fill="#9AA5B1" font-size="11.5">常量池引用</text>
+      <text x="48" y="194" fill="#9AA5B1" font-size="11.5">同步监视器</text>
+      <text x="48" y="218" fill="#9AA5B1" font-size="11.5">JVM 内部引用</text>
+
+      <!-- 对象图 -->
+      <circle cx="290" cy="110" r="30" fill="rgba(110,203,168,.12)" stroke="rgba(110,203,168,.55)"/>
+      <text x="290" y="115" text-anchor="middle" fill="#BFE8D5" font-size="12" font-weight="600">A</text>
+
+      <circle cx="420" cy="80" r="28" fill="rgba(110,203,168,.12)" stroke="rgba(110,203,168,.55)"/>
+      <text x="420" y="85" text-anchor="middle" fill="#BFE8D5" font-size="12" font-weight="600">B</text>
+
+      <circle cx="420" cy="170" r="28" fill="rgba(110,203,168,.12)" stroke="rgba(110,203,168,.55)"/>
+      <text x="420" y="175" text-anchor="middle" fill="#BFE8D5" font-size="12" font-weight="600">C</text>
+
+      <circle cx="560" cy="110" r="28" fill="rgba(232,138,165,.08)" stroke="rgba(232,138,165,.5)" stroke-dasharray="4 3"/>
+      <text x="560" y="115" text-anchor="middle" fill="#F0C4D4" font-size="12" font-weight="600">D</text>
+
+      <circle cx="660" cy="110" r="26" fill="rgba(232,138,165,.08)" stroke="rgba(232,138,165,.5)" stroke-dasharray="4 3"/>
+      <text x="660" y="115" text-anchor="middle" fill="#F0C4D4" font-size="12" font-weight="600">E</text>
+
+      <!-- 引用箭头 -->
+      <g stroke="rgba(110,203,168,.6)" stroke-width="1.6" fill="none">
+        <path d="M 182 100 C 220 100 250 105 258 108" marker-end="url(#arrG)"/>
+        <path d="M 320 108 C 360 92 386 84 390 82" marker-end="url(#arrG)"/>
+        <path d="M 318 122 C 356 140 384 154 390 162" marker-end="url(#arrG)"/>
+      </g>
+      <g stroke="rgba(232,138,165,.55)" stroke-width="1.4" stroke-dasharray="4 3" fill="none">
+        <path d="M 448 84 C 500 96 528 102 552 107" marker-end="url(#arrR)"/>
+        <path d="M 588 112 C 618 112 628 112 632 112" marker-end="url(#arrR)"/>
+      </g>
+      <defs>
+        <marker id="arrG" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" fill="rgba(110,203,168,.6)"/>
+        </marker>
+        <marker id="arrR" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" fill="rgba(232,138,165,.55)"/>
+        </marker>
+      </defs>
+
+      <text x="290" y="270" text-anchor="middle" fill="#9AA5B1" font-size="11.5">A 可达（根直达）</text>
+      <text x="420" y="270" text-anchor="middle" fill="#9AA5B1" font-size="11.5">B/C 可达（经 A）</text>
+      <text x="600" y="270" text-anchor="middle" fill="#F0C4D4" font-size="11.5">D/E 不可达 = 垃圾</text>
+    </svg>
+  </div>
+</section>
+
+<!-- ===== ② 回收算法 ===== -->
+<section class="domain c2" id="d2">
+  <div class="domain-head">
+    <span class="domain-no">02</span>
+    <span class="domain-title">三大回收算法</span>
+    <span class="domain-en">COLLECTION ALGORITHMS</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>三种算法各有取舍：要么有碎片、要么浪费空间、要么搬对象</b>。没有银弹，所以按「新生代死得快、老年代活得久」分而治之。</p>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <colgroup>
+        <col class="th-algo"><col class="th-detail"><col class="th-pro"><col class="th-con"><col class="th-use">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>算法</th>
+          <th>怎么做</th>
+          <th>优点</th>
+          <th>缺点</th>
+          <th>用在哪</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>标记-清除<br>Mark-Sweep</code></td>
+          <td>从根标记存活对象，再统一清除未标记对象</td>
+          <td>实现简单，不移动对象</td>
+          <td>内存碎片化；标记与清除两次遍历</td>
+          <td>CMS（历史）、G1 的部分阶段</td>
+        </tr>
+        <tr>
+          <td><code>复制<br>Copying</code></td>
+          <td>把存活对象复制到另一半空间，原空间整体废弃</td>
+          <td>无碎片、分配只需移动指针</td>
+          <td>浪费一半空间（存活率低时划算）</td>
+          <td>新生代 Eden → S0/S1（默认 8:1:1）</td>
+        </tr>
+        <tr>
+          <td><code>标记-整理<br>Mark-Compact</code></td>
+          <td>标记存活对象后向一端移动，清理边界外空间</td>
+          <td>无碎片、空间利用率高</td>
+          <td>移动对象需更新引用，停顿长</td>
+          <td>老年代（Parallel 等分代收集器）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="k">分代假设</div>
+      <div class="s"><span class="path">弱代假设 · 大部分对象朝生夕灭</span></div>
+      <div class="d">绝大多数对象很快变垃圾（局部变量）→ 新生代用复制算法最划算；少数活下来的进老年代 → 用标记-整理减少碎片。分治的核心依据。</div>
+    </div>
+    <div class="card">
+      <div class="k">分配与指针</div>
+      <div class="s"><span class="path">TLAB · bump-the-pointer</span></div>
+      <div class="d">Eden 是连续空间，分配 = 指针后移（bump），比空闲列表快；每线程 TLAB 预分配一块，连 CAS 都省了。GC 停顿与分配速度强相关。</div>
+    </div>
+    <div class="card">
+      <div class="k">碎片化代价</div>
+      <div class="s"><span class="path">碎片 → 大对象分配失败 → 提前 Full GC</span></div>
+      <div class="d">标记-清除留下的碎片会导致「空间够但放不下连续大对象」，触发不必要的 Full GC——这是 CMS 退场的核心原因之一。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ③ 分代与收集器 ===== -->
+<section class="domain c1" id="d3">
+  <div class="domain-head">
+    <span class="domain-no">03</span>
+    <span class="domain-title">分代回收与收集器演进</span>
+    <span class="domain-en">GENERATIONAL GC &amp; COLLECTORS</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>收集器 = 算法 × 线程模型 × 停顿策略的封装</b>。从 Serial 到 ZGC，主线始终是「把 STW 尽量变短、把并发做进去」。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">Minor / Major / Full GC</div>
+      <div class="s"><span class="path">新生代 / 老年代 / 整堆</span></div>
+      <div class="d">Minor GC 只回收新生代（复制算法，很快）；Major/Full GC 处理老年代（标记-整理或并发），停顿通常大。目标是「Full GC 越少越好」。</div>
+    </div>
+    <div class="card">
+      <div class="k">Parallel 收集器</div>
+      <div class="s"><span class="path">-XX:+UseParallelGC · JDK 8 默认</span></div>
+      <div class="d">多线程并行回收，吞吐优先（-XX:GCTimeRatio），适合批处理/离线任务；吞吐 = 用户代码时间 / (用户代码 + GC 时间)。</div>
+    </div>
+    <div class="card">
+      <div class="k">CMS 的教训</div>
+      <div class="s"><span class="path">-XX:+UseConcMarkSweepGC · JDK 9 起废弃 · JDK 14 移除</span></div>
+      <div class="d">首个主打低停顿的并发收集器，但并发标记占用 CPU、无法处理浮动垃圾、碎片化严重——「低延迟方向是对的，实现撑不住」，被 G1 接棒。</div>
+    </div>
+    <div class="card">
+      <div class="k">Shenandoah</div>
+      <div class="s"><span class="path">gc/shenandoah/ · 连接缓冲 + 转发指针</span></div>
+      <div class="d">与 ZGC 同时代的低延迟收集器：并发搬运对象，用 Brooks 指针 + 读屏障；已进入 OpenJDK 主线，与 ZGC 是「两条技术路线」的对照。</div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h4>演进时间轴：从 Serial 到 ZGC</h4>
+    <p class="cap">每一代解决上一代的痛点：单线程 → 多线程 → 并发 → Region 化 → 染色指针。停顿目标从「尽量短」走向「确定毫秒级」。</p>
+    <div class="tl">
+      <div class="tl-item">
+        <div class="tl-time">JDK 1.0</div>
+        <div class="tl-body">
+          <b>Serial 串行收集器</b>
+          <span>单线程回收，回收时全线 STW。桌面时代够用；今天主要用于客户端模式与 JVM 自身引导。</span>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-time">JDK 5</div>
+        <div class="tl-body">
+          <b>Parallel 并行收集器</b>
+          <span>多线程并行回收，吞吐优先；JDK 8 的默认收集器，批处理/离线场景至今常用。-XX:+UseParallelGC。</span>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-time">JDK 7</div>
+        <div class="tl-body">
+          <b>CMS 并发标记-清除</b>
+          <span>首次「并发回收」：标记与清理与用户线程并行，大幅缩短停顿；但碎片与 CPU 抢占问题严重，JDK 9 标记废弃。</span>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-time">JDK 9</div>
+        <div class="tl-body">
+          <b>G1 成为默认</b>
+          <span>Region 化堆 + RSet + SATB，停顿可预测（-XX:MaxGCPauseMillis）；把「物理连续」的假设彻底打破，为后续收集器铺路。</span>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-time">JDK 15+</div>
+        <div class="tl-body">
+          <b>ZGC / Shenandoah 成熟</b>
+          <span>ZGC 染色指针 + 读屏障，停顿不随堆大小增长（毫秒级）；Shenandoah 并发搬移对象。JDK 21 的 ZGC 已支持分代。</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ④ G1 专题 ===== -->
+<section class="domain c5" id="d4">
+  <div class="domain-head">
+    <span class="domain-no">04</span>
+    <span class="domain-title">G1 收集器</span>
+    <span class="domain-en">GARBAGE-FIRST</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>G1 把堆切成 Region，每次挑「垃圾最多」的 Region 回收</b>（Garbage-First 的由来），用「回收收益排序」把停顿控制在目标之内。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">Region 布局</div>
+      <div class="s"><span class="path">gc/g1/ · -XX:G1HeapRegionSize</span></div>
+      <div class="d">堆切成约 2048 个 Region（1~32MB），Eden/Survivor/Old/Humongous 都是 Region 的「角色」；大对象占连续多个 Humongous Region。</div>
+    </div>
+    <div class="card">
+      <div class="k">RSet 记忆集</div>
+      <div class="s"><span class="path">gc/g1/g1RemSet.cpp · 卡表 Card Table</span></div>
+      <div class="d">记录「谁引用了我」：回收一个 Region 时不必全堆扫描，只查 RSet 找跨区引用。写屏障维护卡表脏位，是空间换时间的核心。</div>
+    </div>
+    <div class="card">
+      <div class="k">并发标记与 SATB</div>
+      <div class="s"><span class="path">g1ConcurrentMark.cpp · 三色标记</span></div>
+      <div class="d">SATB（Snapshot-At-The-Beginning）快照：并发标记开始时拍引用快照，用写屏障记录增量，保证不漏标——白对象只要在快照里可达就安全。</div>
+    </div>
+    <div class="card">
+      <div class="k">混合回收</div>
+      <div class="s"><span class="path">G1 的回收循环：Young → 并发标记 → Mixed</span></div>
+      <div class="d">先只收年轻代（Eden+Survivor），IHOP 触发并发标记，标记后进入 Mixed 阶段按收益挑老年代 Region 回收；大停顿由「增量回收」摊薄。</div>
+    </div>
+    <div class="card">
+      <div class="k">停顿预测模型</div>
+      <div class="s"><span class="path">-XX:MaxGCPauseMillis=200 · 默认</span></div>
+      <div class="d">用历史回收速率推算「这次能收几个 Region」，动态调整年轻代大小满足停顿目标——G1 的停顿是「软目标」，突发大对象/大 Region 仍可能超。</div>
+    </div>
+    <div class="card">
+      <div class="k">G1 的代价</div>
+      <div class="s"><span class="path">RSet 内存开销 · 写屏障成本 · 并发标记 CPU</span></div>
+      <div class="d">Region 化 + 记忆集让单次停顿短，但维护 RSet/屏障有额外开销；吞吐通常略低于 Parallel——用一点吞吐换延迟，是 G1 的定价。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑤ ZGC / Shenandoah ===== -->
+<section class="domain c6" id="d5">
+  <div class="domain-head">
+    <span class="domain-no">05</span>
+    <span class="domain-title">ZGC 与低延迟收集器</span>
+    <span class="domain-en">ZGC &amp; LOW-PAUSE GC</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>ZGC 的目标是「停顿不随堆变大」</b>——10G 堆和 100G 堆都只停毫秒级，靠染色指针和读屏障把回收搬进并发阶段。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">染色指针</div>
+      <div class="s"><span class="path">gc/z/zPointer.hpp · 指针高 4 位存状态</span></div>
+      <div class="d">64 位指针用 4 位标记：Finalizable/Remapped/Marked0/Marked1。对象「搬没搬、标记没标记」都编码在指针里，读指针即可知状态。</div>
+    </div>
+    <div class="card">
+      <div class="k">读屏障</div>
+      <div class="s"><span class="path">gc/z/zBarrier.cpp</span></div>
+      <div class="d">读对象引用时检查指针状态：若已标记搬移，就地修正指针（自愈）。让「用户线程看到的一直是新地址」，回收完全并发进行。</div>
+    </div>
+    <div class="card">
+      <div class="k">分代 ZGC</div>
+      <div class="s"><span class="path">JDK 21 · 年轻代/老年代 ZGC</span></div>
+      <div class="d">加入分代后：年轻代回收更频繁但更便宜，老年代回收频率大幅下降——吞吐与延迟双优，大堆场景的现代默认选择之一。</div>
+    </div>
+    <div class="card">
+      <div class="k">适用场景</div>
+      <div class="s"><span class="path">-XX:+UseZGC · 大堆 · 低延迟服务</span></div>
+      <div class="d">推荐堆 ≥ 8G 使用（小堆收益不明显）；牺牲一些吞吐与内存（染色指针/屏障开销），换「GC 不再出现在 P99 里」。</div>
+    </div>
+    <div class="card">
+      <div class="k">Shenandoah 对照</div>
+      <div class="s"><span class="path">gc/shenandoah/ · 转发指针 + 连接缓冲</span></div>
+      <div class="d">不用染色指针，用对象内嵌转发指针 + 读屏障；两者思路互补：ZGC 状态在指针里，Shenandoah 状态在对象里。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑥ GC 调优 ===== -->
+<section class="domain c7" id="d6">
+  <div class="domain-head">
+    <span class="domain-no">06</span>
+    <span class="domain-title">GC 调优</span>
+    <span class="domain-en">GC TUNING</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>调优不是堆参数，是「定目标 → 看日志 → 找病根 → 最小改动」</b>。先分清楚是「堆太小」还是「对象该回收没回收」还是「晋升太快」。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">三角权衡</div>
+      <div class="s"><span class="path">吞吐 / 延迟 / 内存占用</span></div>
+      <div class="d">三选二：要吞吐给大堆少 GC（Parallel）、要延迟选 G1/ZGC、要省内存就得接受更频繁的回收。先定业务目标再选收集器。</div>
+    </div>
+    <div class="card">
+      <div class="k">关键参数</div>
+      <div class="s"><span class="path">-Xms/-Xmx · -XX:MaxGCPauseMillis · -XX:NewRatio</span></div>
+      <div class="d">堆大小建议相等且留 30% 余量；停顿目标给 G1 定软目标；NewRatio 控制新生代/老年代比例。改一个参数，看一组日志。</div>
+    </div>
+    <div class="card">
+      <div class="k">GC 日志解读</div>
+      <div class="s"><span class="path">-Xlog:gc*:file=gc.log · JDK 9+ 统一</span></div>
+      <div class="d">看三类信号：GC 频率（太频繁→堆小/分配快）、停顿时长（太长→老年代回收/大对象）、晋升速率（太快→对象过大/阈值低）。</div>
+    </div>
+    <div class="card">
+      <div class="k">常见病根</div>
+      <div class="s"><span class="path">频繁 Full GC · 过早晋升 · 大对象 · 内存泄漏</span></div>
+      <div class="d">Full GC 频繁先怀疑泄漏或堆小（转储确认）；过早晋升看 Survivor 是否装不下；大对象（Humongous）看分配路径；泄漏用 MAT 找引用链。</div>
+    </div>
+    <div class="card">
+      <div class="k">过早晋升</div>
+      <div class="s"><span class="path">-XX:MaxTenuringThreshold · -XX:TargetSurvivorRatio</span></div>
+      <div class="d">Survivor 装不下存活对象时提前晋升老年代；调大 Survivor（-XX:SurvivorRatio）或降阈值能缓解，但根因常是「生成了太多长生命周期对象」。</div>
+    </div>
+    <div class="card">
+      <div class="k">调优流程</div>
+      <div class="s"><span class="path">测量 → 假设 → 验证（一次只改一个）</span></div>
+      <div class="d">先用 JFR/jstat 采集基线 → 提出假设（如「Survivor 太小导致晋升」）→ 改一个参数 → 同负载复测对比 → 记录结论。不猜、不堆参数。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑦ 验证实验 ===== -->
+<section class="domain c2" id="d7">
+  <div class="domain-head">
+    <span class="domain-no">07</span>
+    <span class="domain-title">验证实验：亲手看 GC</span>
+    <span class="domain-en">VERIFY WITH TOOLS</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>造一个「活着不死的对象」，用 GC 日志亲眼看它从 Eden 一路走到老年代</b>。看懂一次晋升，就理解了整个分代模型。</p>
+  <div class="cmd-grid">
+    <div class="cmd">
+      <div class="k"><span class="c">-Xlog:gc</span> · 开启 GC 日志</div>
+      <pre>java -Xlog:gc*:file=gc.log:time,uptime \
+     -Xmx256m GcDemo</pre>
+      <div class="d">记录每次 GC 的类型（Young/Full）、前后用量、停顿时长。调优的第一工具，先看频率再看时长。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">jstat</span> · 实时各代用量</div>
+      <pre>jstat -gc &lt;pid&gt; 1000</pre>
+      <div class="d">每秒采样 EU/OU（Eden/Old 用量）、YGC/FGC 次数与耗时。观察「Eden 涨 → Young GC → 存活进 S → 逐步升 OU」。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">JFR</span> · GC 事件时间线</div>
+      <pre>java -XX:StartFlightRecording=duration=60s,\
+filename=gc.jfr GcDemo</pre>
+      <div class="d">用 JMC 打开，看 GC 事件时间轴、堆使用曲线、分配压力（Allocation Profiling）——生产可开的低开销记录。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">制造 Minor GC</span> · 观察晋升</div>
+      <pre>java -Xmx128m -Xlog:gc* AgeDemo</pre>
+      <div class="d">循环 new 短命对象 → 大量 Young GC；再让部分对象活得久 → 日志里出现 "promotion"；用 -XX:MaxTenuringThreshold=1/15 对比晋升速度。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">制造 Full GC</span> · 看停顿</div>
+      <pre>java -Xmx64m -Xlog:gc* LeakDemo</pre>
+      <div class="d">用静态集合不断加对象 → 老年代打满 → Full GC 反复出现 → OOM。配 -XX:+HeapDumpOnOutOfMemoryError 转储，MAT 分析泄漏链。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">切换收集器</span> · 对比停顿</div>
+      <pre>java -XX:+UseParallelGC -Xlog:gc* GcDemo
+java -XX:+UseG1GC      -Xlog:gc* GcDemo
+java -XX:+UseZGC       -Xlog:gc* GcDemo</pre>
+      <div class="d">同一负载三套收集器，对比 Young/Full GC 次数与单次停顿：Parallel 吞吐高但停顿大，ZGC 停顿毫秒级但吞吐略低——三角权衡的实证。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 阅读路径 ===== -->
+<section class="pathway" id="pathway">
+  <div class="wrap" style="padding:0;">
+    <div class="pathway-title">建议阅读路径</div>
+    <p class="pathway-sub">从「判死标准」到「收集器选择」：先掌握判定与算法，再看收集器如何组合与并发化，最后用日志与工具建立调优直觉。</p>
+    <div class="steps">
+      <div class="step">
+        <div class="no">1</div>
+        <h5>吃透可达性</h5>
+        <p>GC Roots 集合 → 引用类型体系 → 三色标记 → 用 WeakReference 做缓存实验体会回收时机。</p>
+      </div>
+      <div class="step">
+        <div class="no">2</div>
+        <h5>理解三大算法</h5>
+        <p>标记-清除/复制/整理的取舍 → 分代假设 → TLAB 分配；对照 runtime-data-areas.html 的堆分代图。</p>
+      </div>
+      <div class="step">
+        <div class="no">3</div>
+        <h5>看懂收集器演进</h5>
+        <p>时间轴顺一遍：Serial → Parallel → CMS → G1 → ZGC；理解每一代「解决什么、代价是什么」。</p>
+      </div>
+      <div class="step">
+        <div class="no">4</div>
+        <h5>深挖 G1</h5>
+        <p>Region/RSet/SATB 三件套 → 混合回收 → 停顿预测；用 -Xlog:gc 观察 G1 的 Young/Mixed 周期。</p>
+      </div>
+      <div class="step">
+        <div class="no">5</div>
+        <h5>对比低延迟收集器</h5>
+        <p>ZGC 染色指针 + 读屏障 vs Shenandoah 转发指针；大堆压测对比三套收集器的 P99 与吞吐。</p>
+      </div>
+      <div class="step">
+        <div class="no">6</div>
+        <h5>调优闭环</h5>
+        <p>回 <span class="path">OVERVIEW.html</span> 看 GC 在总览中的位置；用「测量→假设→验证」流程解决一个真实的频繁 Full GC 案例。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>OpenJDK 21.0.2 (HotSpot) · 垃圾回收专题 · 知识源：JDK 自带 src.zip + OpenJDK 主线源码路径</span>
+    <span>HotSpot 路径标注为在线浏览参考 · 未 clone OpenJDK 仓库</span>
+  </div>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  var chips = Array.prototype.slice.call(document.querySelectorAll(".chip"));
+  var nodes = Array.prototype.slice.call(document.querySelectorAll(".graph .node"));
+  var targets = ["overview","d1","d2","d3","d4","d5","d6","d7","pathway"];
+
+  function setActive(id){
+    chips.forEach(function(c){ c.classList.toggle("on", c.getAttribute("data-target") === id); });
+  }
+  function jump(id){
+    var el = document.getElementById(id);
+    if(el){ el.scrollIntoView({behavior:"smooth", block:"start"}); setActive(id); }
+  }
+  chips.forEach(function(c){
+    c.addEventListener("click", function(){ jump(c.getAttribute("data-target")); });
+  });
+  nodes.forEach(function(n){
+    n.addEventListener("click", function(){ jump(n.getAttribute("data-target")); });
+  });
+
+  var sections = targets.map(function(id){ return document.getElementById(id); });
+  if("IntersectionObserver" in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){ setActive(en.target.id); }
+      });
+    }, {rootMargin:"-20% 0px -70% 0px"});
+    sections.forEach(function(s){ if(s) io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>
