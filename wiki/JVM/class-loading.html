@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>类加载机制 · JVM 字节码入口</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%236FC7DE'/%3E%3Ctext x='32' y='45' font-size='38' font-weight='700' text-anchor='middle' fill='%230F141B'%3EJ%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;900&display=swap">
+<style>
+  :root{
+    --bg:#0F141B;
+    --bg2:#141B24;
+    --card:#161E28;
+    --card2:#1B2531;
+    --text:#E7EAEE;
+    --text2:#9AA5B1;
+    --line:rgba(255,255,255,.07);
+    --mono:"Cascadia Code",ui-monospace,Consolas,"SF Mono",Menlo,monospace;
+    --c1:#E8A87C; /* 类加载器 橙 */
+    --c2:#7FB4E8; /* 五阶段 蓝 */
+    --c3:#6ECBA8; /* 双亲委派/委派树 绿 */
+    --c4:#B98CE8; /* 常量池 紫 */
+    --c5:#6FC7DE; /* JPMS 青 */
+    --c6:#E88AA5; /* 打破委派 玫红 */
+    --c7:#E3D27A; /* 异常 黄 */
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    font-size:15px;line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit;text-decoration:none;}
+  code, .path{
+    font-family:var(--mono);
+    font-size:.86em;
+  }
+  .path{
+    color:var(--text2);
+    background:rgba(0,0,0,.32);
+    border:1px solid rgba(255,255,255,.05);
+    padding:1px 6px;
+    border-radius:5px;
+    white-space:nowrap;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px;}
+
+  /* ===== 顶栏导航 ===== */
+  header{
+    position:sticky;top:0;z-index:50;
+    background:rgba(15,20,27,.88);
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .nav{display:flex;align-items:center;gap:8px;padding:10px 0;overflow-x:auto;scrollbar-width:none;}
+  .nav::-webkit-scrollbar{display:none;}
+  .brand{
+    font-weight:900;font-size:15px;letter-spacing:.5px;white-space:nowrap;
+    margin-right:10px;
+  }
+  .brand b{color:#6FC7DE;}
+  .chip{
+    flex:0 0 auto;
+    padding:4px 12px;border-radius:999px;
+    font-size:12.5px;color:var(--text2);
+    border:1px solid var(--line);
+    cursor:pointer;white-space:nowrap;
+    transition:color .15s,border-color .15s,background .15s;
+  }
+  .chip:hover{color:var(--text);border-color:rgba(255,255,255,.22);}
+  .chip.on{color:var(--text);background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.28);}
+  .chip .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;}
+
+  /* ===== Hero ===== */
+  .hero{padding:56px 0 44px;}
+  .hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:36px;align-items:center;}
+  .hero .kicker{
+    font-size:12.5px;letter-spacing:2px;color:var(--text2);
+    text-transform:uppercase;margin-bottom:14px;
+  }
+  .hero h1{font-size:38px;line-height:1.22;font-weight:900;letter-spacing:.5px;}
+  .hero h1 .hl{color:#6FC7DE;}
+  .hero .sub{margin-top:14px;color:var(--text2);font-size:15px;max-width:540px;}
+  .hero .sub b{color:var(--text);font-weight:600;}
+  .pillars{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap;}
+  .pillar{
+    border:1px solid var(--line);border-radius:10px;padding:10px 14px;
+    background:var(--card);flex:1 1 150px;min-width:0;
+  }
+  .pillar .n{font-size:11px;color:var(--text2);letter-spacing:1px;margin-bottom:3px;}
+  .pillar .t{font-size:13.5px;font-weight:600;}
+  .pillar .f{font-family:var(--mono);font-size:11.5px;color:var(--text2);margin-top:3px;display:block;}
+
+  .graph{position:relative;}
+  .graph svg{width:100%;height:auto;display:block;}
+  .graph .node{cursor:pointer;transition:opacity .15s;}
+  .graph .node:hover{opacity:.72;}
+  .graph text{font-family:"Noto Sans SC",sans-serif;user-select:none;}
+
+  /* ===== 区域区块 ===== */
+  .domain{padding:34px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .domain-head{display:flex;align-items:baseline;gap:12px;margin-bottom:6px;}
+  .domain-no{font-family:var(--mono);font-size:15px;font-weight:700;}
+  .domain-title{font-size:23px;font-weight:700;letter-spacing:.3px;}
+  .domain-en{font-size:12px;color:var(--text2);letter-spacing:1px;}
+  .domain-desc{color:var(--text2);font-size:13.5px;margin:4px 0 18px 40px;max-width:760px;}
+  .domain-desc b{color:var(--text);font-weight:600;}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;}
+  .card{
+    background:var(--card);border:1px solid var(--line);
+    border-radius:10px;padding:14px 16px;
+    display:flex;flex-direction:column;gap:8px;min-width:0;
+    transition:transform .15s,border-color .15s;
+  }
+  .card:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.16);}
+  .card .k{font-size:14.5px;font-weight:600;}
+  .card .d{font-size:12.5px;color:var(--text2);line-height:1.6;}
+  .card .s{font-size:12px;color:var(--text);}
+  .card .s .path{white-space:normal;word-break:break-all;}
+  .c1 .domain-no,.c1 .domain-title{color:var(--c1);}
+  .c2 .domain-no,.c2 .domain-title{color:var(--c2);}
+  .c3 .domain-no,.c3 .domain-title{color:var(--c3);}
+  .c4 .domain-no,.c4 .domain-title{color:var(--c4);}
+  .c5 .domain-no,.c5 .domain-title{color:var(--c5);}
+  .c6 .domain-no,.c6 .domain-title{color:var(--c6);}
+  .c7 .domain-no,.c7 .domain-title{color:var(--c7);}
+  .c1 .card{border-left:3px solid var(--c1);}
+  .c2 .card{border-left:3px solid var(--c2);}
+  .c3 .card{border-left:3px solid var(--c3);}
+  .c4 .card{border-left:3px solid var(--c4);}
+  .c5 .card{border-left:3px solid var(--c5);}
+  .c6 .card{border-left:3px solid var(--c6);}
+  .c7 .card{border-left:3px solid var(--c7);}
+
+  /* ===== 图表容器 ===== */
+  .fig{
+    background:var(--card2);border:1px solid var(--line);border-radius:10px;
+    padding:18px 20px;margin:16px 0 4px;
+  }
+  .fig h4{font-size:14px;font-weight:700;margin-bottom:4px;}
+  .fig .cap{font-size:12px;color:var(--text2);margin-bottom:14px;}
+  .fig svg{width:100%;height:auto;display:block;}
+
+  /* ===== 专题 ===== */
+  .topic{padding:40px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .topic-title{font-size:23px;font-weight:700;margin-bottom:6px;}
+  .topic-sub{color:var(--text2);font-size:13.5px;margin-bottom:18px;}
+  .topic-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;}
+  .topic-box{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:16px 18px;}
+  .topic-box h4{font-size:14px;font-weight:700;margin-bottom:10px;}
+  .topic-box h4 em{font-style:normal;font-size:11px;font-weight:500;color:var(--text2);margin-left:6px;letter-spacing:1px;}
+  .topic-box ul{list-style:none;}
+  .topic-box li{font-size:13px;color:var(--text);padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.06);}
+  .topic-box li:last-child{border-bottom:none;}
+  .topic-box li .m{color:var(--text2);}
+  .topic-box.t1 h4{color:var(--c3);}
+  .topic-box.t2 h4{color:var(--c6);}
+  .topic-box.t3 h4{color:var(--c2);}
+  .algo{
+    font-family:var(--mono);font-size:12.5px;line-height:1.85;
+    background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);
+    border-radius:8px;padding:14px 16px;white-space:pre;overflow-x:auto;
+  }
+  .algo.c3{border-color:rgba(110,203,168,.25);color:#BFE8D5;}
+  .algo.c6{border-color:rgba(232,138,165,.25);color:#F0C4D4;}
+
+  /* ===== 阶段流水线 ===== */
+  .phases{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:4px;}
+  .phase{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:12px 10px;text-align:center;position:relative;
+  }
+  .phase .no{
+    font-family:var(--mono);font-size:11px;color:var(--c2);
+    letter-spacing:1px;display:block;margin-bottom:4px;
+  }
+  .phase .cn{font-size:14px;font-weight:700;display:block;margin-bottom:2px;}
+  .phase .en{font-size:10.5px;color:var(--text2);display:block;margin-bottom:8px;}
+  .phase .in{font-size:11px;color:var(--text2);line-height:1.5;}
+  .phase .out{
+    font-size:11px;line-height:1.5;margin-top:8px;padding-top:8px;
+    border-top:1px dashed rgba(255,255,255,.1);
+  }
+  .phase .err{
+    font-family:var(--mono);font-size:10.5px;color:#E88AA5;display:block;
+    margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.1);
+  }
+  .phase.hot{border-color:rgba(127,180,232,.4);}
+
+  /* ===== 表格 ===== */
+  .tbl-wrap{overflow-x:auto;margin-top:6px;}
+  table.tbl{
+    width:100%;border-collapse:collapse;table-layout:fixed;
+    font-size:13px;background:var(--card2);border-radius:10px;overflow:hidden;
+  }
+  table.tbl th{
+    background:rgba(255,255,255,.06);text-align:left;
+    padding:10px 12px;font-weight:700;font-size:12.5px;letter-spacing:.5px;
+  }
+  table.tbl td{padding:10px 12px;border-top:1px solid var(--line);color:var(--text);vertical-align:top;}
+  table.tbl td .m{color:var(--text2);}
+  table.tbl td code{color:#F0C4D4;font-size:.9em;}
+  .th-exception{width:22%;}
+  .th-stage{width:14%;}
+  .th-cause{width:30%;}
+  .th-key{width:16%;}
+  .th-fix{width:18%;}
+
+  /* ===== 命令卡片 ===== */
+  .cmd-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:6px;}
+  .cmd{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;}
+  .cmd .k{font-size:14px;font-weight:700;margin-bottom:6px;}
+  .cmd .k .c{color:var(--c7);}
+  .cmd pre{
+    font-family:var(--mono);font-size:12px;line-height:1.7;color:#C4E6F0;
+    background:rgba(0,0,0,.35);border:1px solid rgba(111,199,222,.2);
+    border-radius:6px;padding:10px 12px;white-space:pre;overflow-x:auto;margin-bottom:8px;
+  }
+  .cmd .d{font-size:12.5px;color:var(--text2);}
+
+  /* ===== 阅读路径 ===== */
+  .pathway{padding:40px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .pathway-title{font-size:23px;font-weight:700;margin-bottom:6px;}
+  .pathway-sub{color:var(--text2);font-size:13.5px;margin-bottom:20px;}
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;counter-reset:step;}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;position:relative;}
+  .step .no{
+    font-family:var(--mono);font-size:12px;font-weight:700;color:#0F141B;
+    background:var(--text);width:22px;height:22px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;margin-bottom:10px;
+  }
+  .step h5{font-size:14.5px;font-weight:700;margin-bottom:6px;}
+  .step p{font-size:12.5px;color:var(--text2);}
+  .step p .path{white-space:normal;}
+
+  /* ===== 页脚 ===== */
+  footer{border-top:1px solid var(--line);padding:28px 0 40px;color:var(--text2);font-size:12.5px;}
+  footer .wrap{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+
+  /* ===== 响应式 ===== */
+  @media (max-width:860px){
+    .hero{padding:38px 0 30px;}
+    .hero-grid{grid-template-columns:1fr;gap:24px;}
+    .hero h1{font-size:28px;}
+    .domain-desc{margin-left:0;}
+    .card .s .path{white-space:normal;}
+    .phases{grid-template-columns:1fr;}
+    table.tbl{font-size:12px;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto;}
+    *{transition:none!important;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <div class="brand">JVM <b>类加载</b></div>
+    <div class="chip on" data-target="overview"><span class="dot" style="background:#6FC7DE"></span>总览</div>
+    <div class="chip" data-target="d1"><span class="dot" style="background:var(--c1)"></span>类加载器</div>
+    <div class="chip" data-target="d2"><span class="dot" style="background:var(--c2)"></span>五阶段</div>
+    <div class="chip" data-target="d3"><span class="dot" style="background:var(--c4)"></span>常量池</div>
+    <div class="chip" data-target="d4"><span class="dot" style="background:var(--c6)"></span>打破委派</div>
+    <div class="chip" data-target="d5"><span class="dot" style="background:var(--c5)"></span>JPMS</div>
+    <div class="chip" data-target="d6"><span class="dot" style="background:var(--c7)"></span>异常排查</div>
+    <div class="chip" data-target="d7"><span class="dot" style="background:var(--text2)"></span>验证实验</div>
+    <div class="chip" data-target="pathway"><span class="dot" style="background:var(--text2)"></span>阅读路径</div>
+  </div>
+</header>
+
+<!-- ===== Hero ===== -->
+<section class="hero" id="overview">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="kicker">JVM · Class Loading · Deep Dive</div>
+      <h1>类加载机制<br><span class="hl">字节码进入 JVM 的入口</span></h1>
+      <p class="sub">简单说：<b>.class 文件只是一张「蓝图」，类加载器负责找到它，五阶段负责把它变成可用的 Class 对象</b>——加载、验证、准备、解析、初始化。谁负责找、怎么找、找到后做什么，就是本页的内容。</p>
+      <div class="pillars">
+        <div class="pillar">
+          <div class="n">输入</div>
+          <div class="t">.class 字节码</div>
+          <span class="f">魔数 CAFEBABE · 常量池</span>
+        </div>
+        <div class="pillar">
+          <div class="n">执行者</div>
+          <div class="t">类加载器体系</div>
+          <span class="f">Bootstrap → Platform → App</span>
+        </div>
+        <div class="pillar">
+          <div class="n">产物</div>
+          <div class="t">Class 对象 + 类元数据</div>
+          <span class="f">方法区 Metaspace</span>
+        </div>
+      </div>
+    </div>
+    <div class="graph" aria-label="类加载流程全景图">
+      <svg viewBox="0 0 720 440" role="img" aria-hidden="true">
+        <!-- 左列：输入与执行者 -->
+        <g class="node" data-target="d3">
+          <rect x="20" y="60" width="180" height="86" rx="8" fill="#141B24" stroke="#B98CE8" stroke-width="1.4"/>
+          <text x="110" y="86" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">.class 字节码文件</text>
+          <text x="110" y="108" text-anchor="middle" fill="#9AA5B1" font-size="11">魔数 CAFEBABE · 版本号</text>
+          <text x="110" y="126" text-anchor="middle" fill="#9AA5B1" font-size="11">常量池 · 方法字节码</text>
+        </g>
+        <g class="node" data-target="d1">
+          <rect x="20" y="300" width="180" height="110" rx="8" fill="#141B24" stroke="#E8A87C" stroke-width="1.4"/>
+          <text x="110" y="326" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">类加载器</text>
+          <text x="110" y="348" text-anchor="middle" fill="#9AA5B1" font-size="11">Bootstrap（启动）</text>
+          <text x="110" y="366" text-anchor="middle" fill="#9AA5B1" font-size="11">Platform（平台）</text>
+          <text x="110" y="384" text-anchor="middle" fill="#9AA5B1" font-size="11">App（应用）· 自定义</text>
+        </g>
+
+        <!-- 中列：五阶段 -->
+        <rect x="236" y="52" width="240" height="356" rx="12" fill="rgba(127,180,232,.05)" stroke="rgba(127,180,232,.25)"/>
+        <text x="356" y="78" text-anchor="middle" fill="#7FB4E8" font-size="13" font-weight="700">五阶段生命周期</text>
+        <g class="node" data-target="d2">
+          <rect x="256" y="96" width="200" height="44" rx="6" fill="rgba(127,180,232,.10)" stroke="rgba(127,180,232,.4)"/>
+          <text x="356" y="116" text-anchor="middle" fill="#E7EAEE" font-size="12.5" font-weight="600">① 加载 Loading</text>
+          <text x="356" y="133" text-anchor="middle" fill="#9AA5B1" font-size="10.5">读字节流 → Class 对象</text>
+          <rect x="256" y="148" width="200" height="44" rx="6" fill="rgba(127,180,232,.10)" stroke="rgba(127,180,232,.4)"/>
+          <text x="356" y="168" text-anchor="middle" fill="#E7EAEE" font-size="12.5" font-weight="600">② 验证 Verification</text>
+          <text x="356" y="185" text-anchor="middle" fill="#9AA5B1" font-size="10.5">四关校验 · 防恶意字节码</text>
+          <rect x="256" y="200" width="200" height="44" rx="6" fill="rgba(127,180,232,.10)" stroke="rgba(127,180,232,.4)"/>
+          <text x="356" y="220" text-anchor="middle" fill="#E7EAEE" font-size="12.5" font-weight="600">③ 准备 Preparation</text>
+          <text x="356" y="237" text-anchor="middle" fill="#9AA5B1" font-size="10.5">静态字段赋零值</text>
+          <rect x="256" y="252" width="200" height="44" rx="6" fill="rgba(127,180,232,.10)" stroke="rgba(127,180,232,.4)"/>
+          <text x="356" y="272" text-anchor="middle" fill="#E7EAEE" font-size="12.5" font-weight="600">④ 解析 Resolution</text>
+          <text x="356" y="289" text-anchor="middle" fill="#9AA5B1" font-size="10.5">符号引用 → 直接引用</text>
+          <rect x="256" y="304" width="200" height="44" rx="6" fill="rgba(127,180,232,.16)" stroke="rgba(127,180,232,.55)"/>
+          <text x="356" y="324" text-anchor="middle" fill="#E7EAEE" font-size="12.5" font-weight="600">⑤ 初始化 Initialization</text>
+          <text x="356" y="341" text-anchor="middle" fill="#9AA5B1" font-size="10.5">执行 &lt;clinit&gt; · 唯一主动触发</text>
+          <text x="356" y="384" text-anchor="middle" fill="#9AA5B1" font-size="11">失败出口：ExceptionInInitializerError</text>
+        </g>
+
+        <!-- 右列：产物 -->
+        <g class="node" data-target="d2">
+          <rect x="510" y="60" width="190" height="86" rx="8" fill="#141B24" stroke="#7FB4E8" stroke-width="1.4"/>
+          <text x="605" y="86" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">Class 对象（堆）</text>
+          <text x="605" y="108" text-anchor="middle" fill="#9AA5B1" font-size="11">java.lang.Class 实例</text>
+          <text x="605" y="126" text-anchor="middle" fill="#9AA5B1" font-size="11">反射的入口</text>
+        </g>
+        <g class="node" data-target="d3">
+          <rect x="510" y="180" width="190" height="86" rx="8" fill="#141B24" stroke="#B98CE8" stroke-width="1.4"/>
+          <text x="605" y="206" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">类元数据（方法区）</text>
+          <text x="605" y="228" text-anchor="middle" fill="#9AA5B1" font-size="11">Klass 结构 · 字节码</text>
+          <text x="605" y="246" text-anchor="middle" fill="#9AA5B1" font-size="11">运行时常量池</text>
+        </g>
+        <g class="node" data-target="d2">
+          <rect x="510" y="300" width="190" height="110" rx="8" fill="#141B24" stroke="#6ECBA8" stroke-width="1.4"/>
+          <text x="605" y="326" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">静态变量（堆）</text>
+          <text x="605" y="348" text-anchor="middle" fill="#9AA5B1" font-size="11">准备阶段已零值化</text>
+          <text x="605" y="366" text-anchor="middle" fill="#9AA5B1" font-size="11">初始化阶段赋初值</text>
+          <text x="605" y="384" text-anchor="middle" fill="#9AA5B1" font-size="11">实例对象（Eden）</text>
+        </g>
+
+        <!-- 箭头 -->
+        <defs>
+          <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="rgba(255,255,255,.45)"/>
+          </marker>
+        </defs>
+        <g stroke="rgba(255,255,255,.3)" stroke-width="1.4" fill="none">
+          <path d="M 200 103 C 218 103 218 118 254 118" marker-end="url(#arr)"/>
+          <path d="M 200 355 C 220 355 220 300 254 300" marker-end="url(#arr)"/>
+          <path d="M 456 118 C 484 118 484 103 508 103" marker-end="url(#arr)"/>
+          <path d="M 456 326 C 484 326 484 223 508 223" marker-end="url(#arr)"/>
+          <path d="M 456 180 C 480 180 480 350 508 355" marker-end="url(#arr)"/>
+        </g>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<main class="wrap">
+
+<!-- ===== ① 类加载器体系 ===== -->
+<section class="domain c1" id="d1">
+  <div class="domain-head">
+    <span class="domain-no">01</span>
+    <span class="domain-title">类加载器体系</span>
+    <span class="domain-en">CLASS LOADER HIERARCHY</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>JVM 里的类不是「读进来」的，而是被某个类加载器「定义」出来的</b>。类由「加载器 + 全限定名」共同唯一确定，这就是为什么同名类可以共存。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">Bootstrap 启动类加载器</div>
+      <div class="s"><span class="path">C++ 实现 · getClassLoader() 返回 null</span></div>
+      <div class="d">JVM 自身的一部分，加载 java.base 等核心模块（rt.jar 的现代版）。用 C++ 实现，Java 侧拿不到引用，所以显示为 null。</div>
+    </div>
+    <div class="card">
+      <div class="k">Platform 平台类加载器</div>
+      <div class="s"><span class="path">java.lang.ClassLoader · JDK 9 更名</span></div>
+      <div class="d">由 Extension（扩展）加载器改名而来。加载 java.base 之外的标准模块（java.sql、java.xml 等），是 Bootstrap 的子级。</div>
+    </div>
+    <div class="card">
+      <div class="k">Application 应用类加载器</div>
+      <div class="s"><span class="path">AppClassLoader · classpath / -cp</span></div>
+      <div class="d">加载 classpath 上的用户类与第三方依赖，默认的「我们写的类」的加载者，也是线程上下文类加载器的默认值。</div>
+    </div>
+    <div class="card">
+      <div class="k">自定义类加载器</div>
+      <div class="s"><span class="path">继承 ClassLoader · 覆写 findClass()</span></div>
+      <div class="d">模板方法模式：loadClass() 已实现委派逻辑，子类只需覆写 findClass() 返回字节（defineClass）。热部署、加密类、字节码增强都靠它。</div>
+    </div>
+    <div class="card">
+      <div class="k">核心方法三件套</div>
+      <div class="s"><span class="path">loadClass · findClass · defineClass</span></div>
+      <div class="d">loadClass 实现双亲委派；findClass 由子类实现「去哪找」；defineClass 把字节数组变成 Class。加 findLoadedClass 检查缓存。</div>
+    </div>
+    <div class="card">
+      <div class="k">命名空间隔离</div>
+      <div class="s"><span class="path">ClassLoader 实例 + 类名 = 类身份</span></div>
+      <div class="d">不同加载器加载的「同名类」互不兼容（instanceof 为 false）。这是 Tomcat 应用隔离、OSGi 模块化的根基。</div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h4>专题图：双亲委派模型</h4>
+    <p class="cap">类加载请求自底向上逐级委托，实际加载自顶向下逐级回落。核心保证：任何类最多被加载一次，核心 API 只属于 Bootstrap。</p>
+    <svg viewBox="0 0 720 300" role="img" aria-label="双亲委派模型示意图">
+      <!-- 层级节点 -->
+      <rect x="250" y="30" width="220" height="46" rx="8" fill="#141B24" stroke="#E8A87C" stroke-width="1.4"/>
+      <text x="360" y="51" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">Bootstrap 启动类加载器</text>
+      <text x="360" y="68" text-anchor="middle" fill="#9AA5B1" font-size="11">C++ 实现 · java.base</text>
+
+      <rect x="250" y="112" width="220" height="46" rx="8" fill="#141B24" stroke="#E8A87C" stroke-width="1.4"/>
+      <text x="360" y="133" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">Platform 平台类加载器</text>
+      <text x="360" y="150" text-anchor="middle" fill="#9AA5B1" font-size="11">JDK 9 起 · 平台模块</text>
+
+      <rect x="250" y="194" width="220" height="46" rx="8" fill="#141B24" stroke="#E8A87C" stroke-width="1.4"/>
+      <text x="360" y="215" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">Application 应用类加载器</text>
+      <text x="360" y="232" text-anchor="middle" fill="#9AA5B1" font-size="11">classpath · 用户代码</text>
+
+      <rect x="250" y="276" width="220" height="0" rx="8" fill="none"/>
+      <rect x="250" y="276" width="220" height="0" rx="8" fill="none"/>
+
+      <!-- 箭头：请求自底向上（左） / 加载自顶向下（右） -->
+      <g stroke="rgba(232,138,165,.6)" stroke-width="1.6" fill="none">
+        <path d="M 180 137 L 180 53" marker-end="url(#arrR)"/>
+        <path d="M 180 219 L 180 137" marker-end="url(#arrR)"/>
+        <path d="M 180 301 L 180 219" marker-end="url(#arrR)"/>
+      </g>
+      <g stroke="rgba(110,203,168,.6)" stroke-width="1.6" fill="none">
+        <path d="M 540 53 L 540 137" marker-end="url(#arrG)"/>
+        <path d="M 540 137 L 540 219" marker-end="url(#arrG)"/>
+      </g>
+      <defs>
+        <marker id="arrR" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" fill="rgba(232,138,165,.6)"/>
+        </marker>
+        <marker id="arrG" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" fill="rgba(110,203,168,.6)"/>
+        </marker>
+      </defs>
+
+      <text x="176" y="42" text-anchor="end" fill="#F0C4D4" font-size="11.5">加载请求</text>
+      <text x="176" y="320" text-anchor="end" fill="#F0C4D4" font-size="11.5">自底向上</text>
+      <text x="544" y="42" text-anchor="start" fill="#BFE8D5" font-size="11.5">实际加载</text>
+      <text x="544" y="320" text-anchor="start" fill="#BFE8D5" font-size="11.5">自顶向下</text>
+
+      <!-- 右侧说明 -->
+      <text x="360" y="273" text-anchor="middle" fill="#9AA5B1" font-size="11">自定义加载器：作为 App 的子级继续向下扩展</text>
+    </svg>
+  </div>
+</section>
+
+<!-- ===== ② 五阶段生命周期 ===== -->
+<section class="domain c2" id="d2">
+  <div class="domain-head">
+    <span class="domain-no">02</span>
+    <span class="domain-title">五阶段生命周期</span>
+    <span class="domain-en">CLASS LIFE CYCLE</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>加载是「找到蓝图」，验证是「验真伪」，准备是「备空间」，解析是「连符号」，初始化才是「动真格」</b>。前四步懒散、第五步由主动使用触发。</p>
+  <div class="phases">
+    <div class="phase">
+      <span class="no">①</span>
+      <span class="cn">加载</span>
+      <span class="en">Loading</span>
+      <div class="in">读字节流（classpath/JAR/网络）→ 解析为方法区结构 → 生成 Class 对象</div>
+      <div class="out" style="color:#9AA5B1">产物：Class 对象（堆）</div>
+      <span class="err">ClassNotFoundException</span>
+    </div>
+    <div class="phase">
+      <span class="no">②</span>
+      <span class="cn">验证</span>
+      <span class="en">Verification</span>
+      <div class="in">四关：文件格式（魔数/版本）→ 元数据（父类/类型）→ 字节码（栈帧/类型安全）→ 符号引用</div>
+      <div class="out" style="color:#9AA5B1">产物：通过校验</div>
+      <span class="err">VerifyError / ClassFormatError</span>
+    </div>
+    <div class="phase">
+      <span class="no">③</span>
+      <span class="cn">准备</span>
+      <span class="en">Preparation</span>
+      <div class="in">为静态字段分配内存并赋「零值」——不是代码里的初值；final static 常量已在常量池</div>
+      <div class="out" style="color:#9AA5B1">产物：零值静态变量</div>
+      <span class="err">—</span>
+    </div>
+    <div class="phase">
+      <span class="no">④</span>
+      <span class="cn">解析</span>
+      <span class="en">Resolution</span>
+      <div class="in">符号引用 → 直接引用（内存地址/偏移）；可延迟到首次使用（lazy resolution）</div>
+      <div class="out" style="color:#9AA5B1">产物：直接引用</div>
+      <span class="err">NoSuchFieldError / NoSuchMethodError</span>
+    </div>
+    <div class="phase hot">
+      <span class="no">⑤</span>
+      <span class="cn">初始化</span>
+      <span class="en">Initialization</span>
+      <div class="in">执行 &lt;clinit&gt;：静态块 + 静态字段赋值；唯一「主动使用」触发的阶段</div>
+      <div class="out" style="color:#9AA5B1">产物：类就绪可用</div>
+      <span class="err">ExceptionInInitializerError</span>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="k">主动使用六种触发</div>
+      <div class="s"><span class="path">new · getstatic · putstatic · invokestatic</span></div>
+      <div class="d">创建实例、读写静态字段（非常量）、调用静态方法、反射（Class.forName）、初始化子类（先父后子）、作为 main 入口类。满足其一即触发初始化。</div>
+    </div>
+    <div class="card">
+      <div class="k">被动引用不触发</div>
+      <div class="s"><span class="path">子类引用父类静态字段 · 数组定义 · 常量</span></div>
+      <div class="d">「引用父类静态字段」只初始化父类不初始化子类；new 数组只初始化数组类；引用编译期常量（final static）直接取常量池值，不触发类初始化。</div>
+    </div>
+    <div class="card">
+      <div class="k">加载的唯一性与缓存</div>
+      <div class="s"><span class="path">findLoadedClass · 加载器+类名</span></div>
+      <div class="d">同一个加载器下同名类只加载一次；再次请求命中缓存。这是「为什么重复 new 不重复加载类」的原因。</div>
+    </div>
+    <div class="card">
+      <div class="k">接口与特殊规则</div>
+      <div class="s"><span class="path">JLS §12.4 · 接口初始化</span></div>
+      <div class="d">接口初始化不触发父接口初始化（除非父接口静态字段被使用）；方法句柄（invokedynamic）调用点也会触发目标类初始化。</div>
+    </div>
+    <div class="card">
+      <div class="k">卸载条件</div>
+      <div class="s"><span class="path">HotSpot: classfile/systemDictionary.cpp</span></div>
+      <div class="d">类加载器可被回收 + 类无实例 + 类无引用三条件齐备才卸载；自定义加载器场景（热部署）是理解元空间回收的关键。</div>
+    </div>
+    <div class="card">
+      <div class="k">观察加载序列</div>
+      <div class="s"><span class="path">java -verbose:class Demo</span></div>
+      <div class="d">启动时打印每行「[Loaded xxx from ...]」，真实看到「先父后子」的加载顺序与懒加载：用到哪个类才加载哪个。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ③ 常量池与符号引用 ===== -->
+<section class="domain c4" id="d3">
+  <div class="domain-head">
+    <span class="domain-no">03</span>
+    <span class="domain-title">常量池与符号引用</span>
+    <span class="domain-en">CONSTANT POOL &amp; SYMBOLIC REFERENCE</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>.class 里全是「名字」（符号引用），运行期才把名字翻译成「地址」（直接引用）</b>。这一层间接，是 JVM 支持动态绑定与热替换的根基。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">类文件常量池</div>
+      <div class="s"><span class="path">javap -v · CONSTANT_* 表项</span></div>
+      <div class="d">CONSTANT_Class / Utf8 / Methodref / Fieldref / String / Integer…：编译期生成，全是「符号」——类名、方法名、字段名、描述符。</div>
+    </div>
+    <div class="card">
+      <div class="k">运行时常量池</div>
+      <div class="s"><span class="path">HotSpot: oops/constantPool.hpp</span></div>
+      <div class="d">类文件常量池进入方法区后的运行时版本：部分表项已解析为直接引用（方法指针、字段偏移），未用到的保持符号态。</div>
+    </div>
+    <div class="card">
+      <div class="k">解析 vs 延迟</div>
+      <div class="s"><span class="path">-XX:+AlwaysResolveClassConstants（调试用）</span></div>
+      <div class="d">默认 lazy：符号引用在首次使用时才解析（解析阶段），失败抛 NoSuchFieldError 等；反射与 MethodHandle 有各自的解析路径。</div>
+    </div>
+    <div class="card">
+      <div class="k">字符串常量与 intern</div>
+      <div class="s"><span class="path">CONSTANT_String · String.intern()</span></div>
+      <div class="d">类文件里的字符串字面量以 CONSTANT_String 存在，类加载后首次使用时 intern 进堆中的字符串常量池——回到运行时数据区专题的呼应点。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ④ 打破双亲委派 ===== -->
+<section class="domain c6" id="d4">
+  <div class="domain-head">
+    <span class="domain-no">04</span>
+    <span class="domain-title">打破双亲委派：SPI 与容器</span>
+    <span class="domain-en">BREAKING PARENT DELEGATION</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>双亲委派默认「父先来」，但有些场景必须「父问子要」或「各自为政」</b>。理解反例，才是真正理解双亲委派。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">SPI 问题：JDBC</div>
+      <div class="s"><span class="path">java.sql.DriverManager · ServiceLoader</span></div>
+      <div class="d">DriverManager 由 Bootstrap 加载，却要调用 App 加载的 MySQL 驱动——父加载器看不到子加载器的类。解法：线程上下文类加载器（TCCL）反向委托。</div>
+    </div>
+    <div class="card">
+      <div class="k">TCCL 线程上下文类加载器</div>
+      <div class="s"><span class="path">Thread.setContextClassLoader()</span></div>
+      <div class="d">每个线程可设置自己的类加载器，让「上层代码」用「下层类加载器」加载实现类。ServiceLoader 的默认加载器，SPI 落地的钥匙。</div>
+    </div>
+    <div class="card">
+      <div class="k">Tomcat 容器隔离</div>
+      <div class="s"><span class="path">WebAppClassLoader · 每应用一个</span></div>
+      <div class="d">每个 Web 应用独立类加载器：先自己加载再委派父级（打破顺序），同名类库互不干扰，支持热部署（换加载器即换类）。</div>
+    </div>
+    <div class="card">
+      <div class="k">覆写 loadClass 全打破</div>
+      <div class="s"><span class="path">自定义 ClassLoader 覆写 loadClass()</span></div>
+      <div class="d">完全绕过委派逻辑（如 OSGi 的模块间依赖委托）。代价：核心类一致性风险，需自己保证「不该打破的不打破」。</div>
+    </div>
+    <div class="card">
+      <div class="k">JDK 9+ 的变化</div>
+      <div class="s"><span class="path">模块化下的扁平层级 · 可读性图</span></div>
+      <div class="d">模块系统让「谁依赖谁」显式化（requires），部分 SPI 场景被模块导出/开放替代；但 TCCL 与容器隔离仍是主流实践。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑤ JPMS 模块化 ===== -->
+<section class="domain c5" id="d5">
+  <div class="domain-head">
+    <span class="domain-no">05</span>
+    <span class="domain-title">JPMS 模块化</span>
+    <span class="domain-en">JAVA PLATFORM MODULE SYSTEM</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>JDK 9 给「类 + 包」之上加了一层「模块」，让依赖关系显式化</b>。类加载仍按委派走，但「谁允许看见谁」由模块描述符决定。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">模块描述符</div>
+      <div class="s"><span class="path">module-info.java → module-info.class</span></div>
+      <div class="d">声明模块名、requires（依赖）、exports（导出包）、opens（开放反射）、provides/uses（服务）。编译期与运行期都会校验。</div>
+    </div>
+    <div class="card">
+      <div class="k">模块解析与图</div>
+      <div class="s"><span class="path">java.lang.module.ModuleLayer · Configuration</span></div>
+      <div class="d">启动时解析根模块，沿 requires 构建模块图（依赖环检测）；ModuleLayer 分层承载不同来源的模块集合（如容器再叠加一层）。</div>
+    </div>
+    <div class="card">
+      <div class="k">模块与类加载器映射</div>
+      <div class="s"><span class="path">Launcher：Bootstrap → 平台模块 → 应用模块</span></div>
+      <div class="d">java.base 等基础模块 → Bootstrap；非基础平台模块 → Platform；应用/classpath 模块 → App。模块为类加载器提供命名空间边界。</div>
+    </div>
+    <div class="card">
+      <div class="k">未命名模块</div>
+      <div class="s"><span class="path">classpath 上的类 · 自动模块</span></div>
+      <div class="d">仍在 classpath 跑的代码属于未命名模块（读所有模块、不导出）；JAR 放进 module path 变成自动模块（名字取自文件名）——迁移的两条通道。</div>
+    </div>
+    <div class="card">
+      <div class="k">反射与 opens</div>
+      <div class="s"><span class="path">--add-opens · java.lang.reflect</span></div>
+      <div class="d">模块封装后，跨模块反射访问非 public/非 opens 成员报 InaccessibleObjectException；框架层常需 --add-opens 放行（Spring/Netty 的经典启动参数）。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑥ 异常与排查 ===== -->
+<section class="domain c7" id="d6">
+  <div class="domain-head">
+    <span class="domain-no">06</span>
+    <span class="domain-title">类加载异常与排查</span>
+    <span class="domain-en">EXCEPTIONS &amp; TROUBLESHOOTING</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>类加载的报错几乎都能用「谁在哪个阶段、少了什么」来对号入座</b>。先分「编译期在不在」与「运行期找不找得到」两类。</p>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <colgroup>
+        <col class="th-exception"><col class="th-stage"><col class="th-cause"><col class="th-key"><col class="th-fix">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>异常</th>
+          <th>阶段</th>
+          <th>触发场景</th>
+          <th>关键区别</th>
+          <th>排查方向</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>ClassNotFoundException</code></td>
+          <td>加载</td>
+          <td>运行时按名字找类（反射、Class.forName、框架 SPI）但加载器找不到</td>
+          <td>受检异常，类「不存在的运行期报告」</td>
+          <td>看哪个加载器在找、classpath/module path 是否含该类</td>
+        </tr>
+        <tr>
+          <td><code>NoClassDefFoundError</code></td>
+          <td>加载</td>
+          <td>编译期存在、运行期缺失，或依赖类初始化失败被连带标记</td>
+          <td>Error，通常是「类在但加载失败」的连锁反应</td>
+          <td>-verbose:class 看加载到哪一步断掉，查依赖链</td>
+        </tr>
+        <tr>
+          <td><code>ExceptionInInitializerError</code></td>
+          <td>初始化</td>
+          <td>&lt;clinit&gt;（静态块/静态字段赋值）抛出异常</td>
+          <td>根因在 cause 里，常是静态代码写错</td>
+          <td>读 cause 定位静态初始化代码</td>
+        </tr>
+        <tr>
+          <td><code>VerifyError / ClassFormatError</code></td>
+          <td>验证</td>
+          <td>字节码非法、魔数/版本不符、被篡改或字节码增强出错</td>
+          <td>「文件本身有问题」</td>
+          <td>javap 检查字节码，核对 JDK 版本兼容</td>
+        </tr>
+        <tr>
+          <td><code>UnsupportedClassVersionError</code></td>
+          <td>加载</td>
+          <td>class 编译版本高于当前 JVM 支持版本</td>
+          <td>「编译器 vs 运行器」版本错位</td>
+          <td>javap -v 看 major version，升 JDK 或降编译 target</td>
+        </tr>
+        <tr>
+          <td><code>OOM: Metaspace</code></td>
+          <td>全链</td>
+          <td>动态生成类/热部署加载器泄漏，类元数据撑满元空间</td>
+          <td>「类太多」而非实例太多</td>
+          <td>jcmd GC.class_stats 看类占用，查加载器生命周期</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== ⑦ 验证实验 ===== -->
+<section class="domain c1" id="d7">
+  <div class="domain-head">
+    <span class="domain-no">07</span>
+    <span class="domain-title">验证实验：亲手观察类加载</span>
+    <span class="domain-en">VERIFY WITH TOOLS</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>类加载是「看不到的流程」，但 -verbose:class 能把它变成一行行日志</b>。下面的命令与代码可以直接在本地 JDK 21 上跑。</p>
+  <div class="cmd-grid">
+    <div class="cmd">
+      <div class="k"><span class="c">-verbose:class</span> · 观察加载序列</div>
+      <pre>java -verbose:class HelloWorld</pre>
+      <div class="d">启动即打印数千行 [Loaded xxx from ...]。先看 java.base 全被 Bootstrap 加载，再看自己写的类由 App 加载——双亲委派的实证。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">jcmd</span> · 类层级与统计</div>
+      <pre>jcmd &lt;pid&gt; VM.class_hierarchy java.lang.String
+jcmd &lt;pid&gt; VM.classloader_stats</pre>
+      <div class="d">class_hierarchy 看继承树；classloader_stats 看每个加载器加载了多少类、占用多少元空间——Metaspace 排查的第一步。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">javap</span> · 读常量池</div>
+      <pre>javap -v HelloWorld.class</pre>
+      <div class="d">反汇编看 CONSTANT_* 表项：全限定名、方法描述符、字符串字面量——「符号引用长什么样」的直观答案。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">自定义加载器</span> · 打印加载过程</div>
+      <pre>class MyLoader extends ClassLoader {
+  protected Class&lt;?&gt; findClass(String name) {
+    System.out.println("findClass: " + name);
+    byte[] b = Files.readAllBytes(Path.of(name + ".class"));
+    return defineClass(name, b, 0, b.length);
+  }
+}</pre>
+      <div class="d">覆写 findClass 并打印：先看到父加载器没找到才轮到它——模板方法模式的直观演示。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">SPI 观察</span> · TCCL 是谁</div>
+      <pre>System.out.println(
+  Thread.currentThread()
+       .getContextClassLoader());</pre>
+      <div class="d">打印 TCCL，通常是 AppClassLoader；再配合 ServiceLoader 加载 JDBC 驱动，体会「父问子要」的落地。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">制造现场</span> · 触发类加载异常</div>
+      <pre>java -cp . NoClassDefFoundDemo
+java -XX:MaxMetaspaceSize=32m MetaGenDemo</pre>
+      <div class="d">删掉一个依赖类看 NoClassDefFoundError；用循环生成代理类（CGLIB）撑爆 32m 元空间，走一遍 Metaspace OOM 排查流程。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 阅读路径 ===== -->
+<section class="pathway" id="pathway">
+  <div class="wrap" style="padding:0;">
+    <div class="pathway-title">建议阅读路径</div>
+    <p class="pathway-sub">从「看得见」到「读源码」：先用工具把加载过程变成日志，再钻进 JDK 源码理解模板方法，最后用反例巩固委派模型。</p>
+    <div class="steps">
+      <div class="step">
+        <div class="no">1</div>
+        <h5>跑一遍 -verbose:class</h5>
+        <p>观察启动加载序列：java.base 全归 Bootstrap、用户类归 App，建立「加载器负责制」的直觉。</p>
+      </div>
+      <div class="step">
+        <div class="no">2</div>
+        <h5>读 ClassLoader 源码</h5>
+        <p>IDE 里看 <span class="path">java.lang.ClassLoader</span> 的 loadClass/findClass/defineClass，理解模板方法委派逻辑。</p>
+      </div>
+      <div class="step">
+        <div class="no">3</div>
+        <h5>对照五阶段</h5>
+        <p>用 javap 看常量池 → 写主动/被动引用案例 → 触发 ExceptionInInitializerError 看初始化阶段。</p>
+      </div>
+      <div class="step">
+        <div class="no">4</div>
+        <h5>写自定义加载器</h5>
+        <p>覆写 findClass 打印加载轨迹；再覆写 loadClass 打破委派，对比「先父后子」与「先己后父」。</p>
+      </div>
+      <div class="step">
+        <div class="no">5</div>
+        <h5>理解 SPI 与容器</h5>
+        <p>ServiceLoader + JDBC 驱动体会 TCCL；有条件的看一眼 Tomcat WebAppClassLoader 的隔离策略。</p>
+      </div>
+      <div class="step">
+        <div class="no">6</div>
+        <h5>回到总览</h5>
+        <p>回 <span class="path">OVERVIEW.html</span> 与 <span class="path">runtime-data-areas.html</span>，把类加载放进「字节码 → 内存 → 对象 → GC」完整链路。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>OpenJDK 21.0.2 (HotSpot) · 类加载机制专题 · 知识源：JDK 自带 src.zip + OpenJDK 主线源码路径</span>
+    <span>HotSpot 路径标注为在线浏览参考 · 未 clone OpenJDK 仓库</span>
+  </div>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  var chips = Array.prototype.slice.call(document.querySelectorAll(".chip"));
+  var nodes = Array.prototype.slice.call(document.querySelectorAll(".graph .node"));
+  var targets = ["overview","d1","d2","d3","d4","d5","d6","d7","pathway"];
+
+  function setActive(id){
+    chips.forEach(function(c){ c.classList.toggle("on", c.getAttribute("data-target") === id); });
+  }
+  function jump(id){
+    var el = document.getElementById(id);
+    if(el){ el.scrollIntoView({behavior:"smooth", block:"start"}); setActive(id); }
+  }
+  chips.forEach(function(c){
+    c.addEventListener("click", function(){ jump(c.getAttribute("data-target")); });
+  });
+  nodes.forEach(function(n){
+    n.addEventListener("click", function(){ jump(n.getAttribute("data-target")); });
+  });
+
+  var sections = targets.map(function(id){ return document.getElementById(id); });
+  if("IntersectionObserver" in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){ setActive(en.target.id); }
+      });
+    }, {rootMargin:"-20% 0px -70% 0px"});
+    sections.forEach(function(s){ if(s) io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>
