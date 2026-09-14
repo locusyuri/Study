@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JVM 知识图谱总览 · 运行时、内存与执行引擎</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%236FC7DE'/%3E%3Ctext x='32' y='45' font-size='38' font-weight='700' text-anchor='middle' fill='%230F141B'%3EJ%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;900&display=swap">
+<style>
+  :root{
+    --bg:#0F141B;
+    --bg2:#141B24;
+    --card:#161E28;
+    --card2:#1B2531;
+    --text:#E7EAEE;
+    --text2:#9AA5B1;
+    --line:rgba(255,255,255,.07);
+    --mono:"Cascadia Code",ui-monospace,Consolas,"SF Mono",Menlo,monospace;
+    --c1:#E8A87C; /* 类加载 橙 */
+    --c2:#7FB4E8; /* 运行时数据区 蓝 */
+    --c3:#6ECBA8; /* 对象模型 绿 */
+    --c4:#B98CE8; /* 垃圾回收 紫 */
+    --c5:#6FC7DE; /* 执行引擎 青 */
+    --c6:#E88AA5; /* 并发模型 玫红 */
+    --c7:#E3D27A; /* 监控调优 黄 */
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    font-size:15px;line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit;text-decoration:none;}
+  code, .path{
+    font-family:var(--mono);
+    font-size:.86em;
+  }
+  .path{
+    color:var(--text2);
+    background:rgba(0,0,0,.32);
+    border:1px solid rgba(255,255,255,.05);
+    padding:1px 6px;
+    border-radius:5px;
+    white-space:nowrap;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px;}
+
+  /* ===== 顶栏导航 ===== */
+  header{
+    position:sticky;top:0;z-index:50;
+    background:rgba(15,20,27,.88);
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .nav{display:flex;align-items:center;gap:8px;padding:10px 0;overflow-x:auto;scrollbar-width:none;}
+  .nav::-webkit-scrollbar{display:none;}
+  .brand{
+    font-weight:900;font-size:15px;letter-spacing:.5px;white-space:nowrap;
+    margin-right:10px;
+  }
+  .brand b{color:#6FC7DE;}
+  .chip{
+    flex:0 0 auto;
+    padding:4px 12px;border-radius:999px;
+    font-size:12.5px;color:var(--text2);
+    border:1px solid var(--line);
+    cursor:pointer;white-space:nowrap;
+    transition:color .15s,border-color .15s,background .15s;
+  }
+  .chip:hover{color:var(--text);border-color:rgba(255,255,255,.22);}
+  .chip.on{color:var(--text);background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.28);}
+  .chip .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;}
+
+  /* ===== Hero ===== */
+  .hero{padding:56px 0 44px;}
+  .hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:36px;align-items:center;}
+  .hero .kicker{
+    font-size:12.5px;letter-spacing:2px;color:var(--text2);
+    text-transform:uppercase;margin-bottom:14px;
+  }
+  .hero h1{font-size:40px;line-height:1.22;font-weight:900;letter-spacing:.5px;}
+  .hero h1 .hl{color:#6FC7DE;}
+  .hero .sub{margin-top:14px;color:var(--text2);font-size:15px;max-width:520px;}
+  .pillars{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap;}
+  .pillar{
+    border:1px solid var(--line);border-radius:10px;padding:10px 14px;
+    background:var(--card);flex:1 1 150px;min-width:0;
+  }
+  .pillar .n{font-size:11px;color:var(--text2);letter-spacing:1px;margin-bottom:3px;}
+  .pillar .t{font-size:13.5px;font-weight:600;}
+  .pillar .f{font-family:var(--mono);font-size:11.5px;color:var(--text2);margin-top:3px;display:block;}
+
+  .graph{position:relative;}
+  .graph svg{width:100%;height:auto;display:block;}
+  .graph .node{cursor:pointer;transition:opacity .15s;}
+  .graph .node:hover{opacity:.72;}
+  .graph .center{pointer-events:none;}
+  .graph text{font-family:"Noto Sans SC",sans-serif;user-select:none;}
+
+  /* ===== 领域区块 ===== */
+  .domain{padding:34px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .domain-head{display:flex;align-items:baseline;gap:12px;margin-bottom:6px;}
+  .domain-no{
+    font-family:var(--mono);font-size:15px;font-weight:700;
+  }
+  .domain-title{font-size:23px;font-weight:700;letter-spacing:.3px;}
+  .domain-en{font-size:12px;color:var(--text2);letter-spacing:1px;}
+  .domain-desc{color:var(--text2);font-size:13.5px;margin:4px 0 18px 40px;max-width:760px;}
+  .domain-desc b{color:var(--text);font-weight:600;}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;}
+  .card{
+    background:var(--card);border:1px solid var(--line);
+    border-radius:10px;padding:14px 16px;
+    display:flex;flex-direction:column;gap:8px;min-width:0;
+    transition:transform .15s,border-color .15s;
+  }
+  .card:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.16);}
+  .card .k{font-size:14.5px;font-weight:600;}
+  .card .d{font-size:12.5px;color:var(--text2);line-height:1.6;}
+  .card .s{font-size:12px;color:var(--text);}
+  .card .s .path{white-space:normal;word-break:break-all;}
+  .c1 .domain-no,.c1 .domain-title{color:var(--c1);}
+  .c2 .domain-no,.c2 .domain-title{color:var(--c2);}
+  .c3 .domain-no,.c3 .domain-title{color:var(--c3);}
+  .c4 .domain-no,.c4 .domain-title{color:var(--c4);}
+  .c5 .domain-no,.c5 .domain-title{color:var(--c5);}
+  .c6 .domain-no,.c6 .domain-title{color:var(--c6);}
+  .c7 .domain-no,.c7 .domain-title{color:var(--c7);}
+  .c1 .card{border-left:3px solid var(--c1);}
+  .c2 .card{border-left:3px solid var(--c2);}
+  .c3 .card{border-left:3px solid var(--c3);}
+  .c4 .card{border-left:3px solid var(--c4);}
+  .c5 .card{border-left:3px solid var(--c5);}
+  .c6 .card{border-left:3px solid var(--c6);}
+  .c7 .card{border-left:3px solid var(--c7);}
+
+  /* ===== 专题 ===== */
+  .topic{padding:40px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .topic-title{font-size:23px;font-weight:700;margin-bottom:6px;}
+  .topic-sub{color:var(--text2);font-size:13.5px;margin-bottom:18px;}
+  .topic-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;}
+  .topic-box{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:16px 18px;}
+  .topic-box h4{font-size:14px;font-weight:700;margin-bottom:10px;}
+  .topic-box h4 em{font-style:normal;font-size:11px;font-weight:500;color:var(--text2);margin-left:6px;letter-spacing:1px;}
+  .topic-box ul{list-style:none;}
+  .topic-box li{font-size:13px;color:var(--text);padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.06);}
+  .topic-box li:last-child{border-bottom:none;}
+  .topic-box li .m{color:var(--text2);}
+  .topic-box.t1 h4{color:var(--c3);}
+  .topic-box.t2 h4{color:var(--c6);}
+  .topic-box.t3 h4{color:var(--c1);}
+  .algo{
+    font-family:var(--mono);font-size:12.5px;line-height:1.85;
+    background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);
+    border-radius:8px;padding:14px 16px;white-space:pre;overflow-x:auto;
+  }
+  .algo.c3{border-color:rgba(110,203,168,.25);color:#BFE8D5;}
+  .algo.c6{border-color:rgba(232,138,165,.25);color:#F0C4D4;}
+
+  /* ===== 阅读路径 ===== */
+  .pathway{padding:40px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .pathway-title{font-size:23px;font-weight:700;margin-bottom:6px;}
+  .pathway-sub{color:var(--text2);font-size:13.5px;margin-bottom:20px;}
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;counter-reset:step;}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;position:relative;}
+  .step .no{
+    font-family:var(--mono);font-size:12px;font-weight:700;color:#0F141B;
+    background:var(--text);width:22px;height:22px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;margin-bottom:10px;
+  }
+  .step h5{font-size:14.5px;font-weight:700;margin-bottom:6px;}
+  .step p{font-size:12.5px;color:var(--text2);}
+  .step p .path{white-space:normal;}
+
+  /* ===== 页脚 ===== */
+  footer{border-top:1px solid var(--line);padding:28px 0 40px;color:var(--text2);font-size:12.5px;}
+  footer .wrap{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+
+  /* ===== 响应式 ===== */
+  @media (max-width:860px){
+    .hero{padding:38px 0 30px;}
+    .hero-grid{grid-template-columns:1fr;gap:24px;}
+    .hero h1{font-size:30px;}
+    .domain-desc{margin-left:0;}
+    .card .s .path{white-space:normal;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto;}
+    *{transition:none!important;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <div class="brand">JVM <b>知识图谱</b></div>
+    <div class="chip on" data-target="overview"><span class="dot" style="background:#6FC7DE"></span>总览</div>
+    <div class="chip" data-target="d1"><span class="dot" style="background:var(--c1)"></span>类加载</div>
+    <div class="chip" data-target="d2"><span class="dot" style="background:var(--c2)"></span>运行时数据区</div>
+    <div class="chip" data-target="d3"><span class="dot" style="background:var(--c3)"></span>对象模型</div>
+    <div class="chip" data-target="d4"><span class="dot" style="background:var(--c4)"></span>垃圾回收</div>
+    <div class="chip" data-target="d5"><span class="dot" style="background:var(--c5)"></span>执行引擎</div>
+    <div class="chip" data-target="d6"><span class="dot" style="background:var(--c6)"></span>并发模型</div>
+    <div class="chip" data-target="d7"><span class="dot" style="background:var(--c7)"></span>监控调优</div>
+    <div class="chip" data-target="topic"><span class="dot" style="background:var(--c3)"></span>专题</div>
+    <div class="chip" data-target="pathway"><span class="dot" style="background:var(--text2)"></span>阅读路径</div>
+  </div>
+</header>
+
+<!-- ===== Hero ===== -->
+<section class="hero" id="overview">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="kicker">OpenJDK 21 · HotSpot · Source Map</div>
+      <h1>JVM 的<span class="hl">知识图谱</span><br>运行时、内存与执行引擎总览</h1>
+      <p class="sub">简单说：<b>.class 字节码进来（类加载）→ 在内存里跑（运行时数据区）→ 用完的对象被回收（垃圾回收）→ 代码被解释或编译执行（执行引擎）</b>。本页把这套体系按七大领域组织，每个知识点都标注了 JDK 源码落点，便于对照阅读。</p>
+      <div class="pillars">
+        <div class="pillar">
+          <div class="n">入口</div>
+          <div class="t">类文件 · 字节码</div>
+          <span class="f">.class · 1 个字节码文件</span>
+        </div>
+        <div class="pillar">
+          <div class="n">核心</div>
+          <div class="t">HotSpot 虚拟机</div>
+          <span class="f">解释 + JIT + GC 一体</span>
+        </div>
+        <div class="pillar">
+          <div class="n">支撑</div>
+          <div class="t">JDK 类库</div>
+          <span class="f">java.base · src.zip 可读</span>
+        </div>
+      </div>
+    </div>
+    <div class="graph" aria-label="JVM 七大知识领域关系图">
+      <svg viewBox="0 0 720 440" role="img" aria-hidden="true">
+        <defs>
+          <radialGradient id="cg" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#2A3A52"/>
+            <stop offset="100%" stop-color="#1B2531"/>
+          </radialGradient>
+        </defs>
+        <g stroke="rgba(255,255,255,.10)" stroke-width="1.2">
+          <line x1="360" y1="220" x2="360" y2="60"/>
+          <line x1="360" y1="220" x2="477" y2="117"/>
+          <line x1="360" y1="220" x2="506" y2="243"/>
+          <line x1="360" y1="220" x2="425" y2="345"/>
+          <line x1="360" y1="220" x2="295" y2="345"/>
+          <line x1="360" y1="220" x2="214" y2="243"/>
+          <line x1="360" y1="220" x2="243" y2="117"/>
+        </g>
+        <g class="center">
+          <circle cx="360" cy="220" r="62" fill="url(#cg)" stroke="#6FC7DE" stroke-width="2"/>
+          <text x="360" y="210" text-anchor="middle" fill="#E7EAEE" font-size="19" font-weight="700">JVM</text>
+          <text x="360" y="232" text-anchor="middle" fill="#9AA5B1" font-size="12">HotSpot 21</text>
+        </g>
+        <g class="node" data-target="d1">
+          <circle cx="360" cy="60" r="40" fill="rgba(232,168,124,.14)" stroke="var(--c1)" stroke-width="1.5"/>
+          <text x="360" y="56" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">类加载</text>
+          <text x="360" y="72" text-anchor="middle" fill="#9AA5B1" font-size="11">ClassLoader</text>
+        </g>
+        <g class="node" data-target="d2">
+          <circle cx="477" cy="117" r="40" fill="rgba(127,180,232,.14)" stroke="var(--c2)" stroke-width="1.5"/>
+          <text x="477" y="113" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">数据区</text>
+          <text x="477" y="129" text-anchor="middle" fill="#9AA5B1" font-size="11">Runtime Areas</text>
+        </g>
+        <g class="node" data-target="d3">
+          <circle cx="506" cy="243" r="40" fill="rgba(110,203,168,.14)" stroke="var(--c3)" stroke-width="1.5"/>
+          <text x="506" y="239" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">对象模型</text>
+          <text x="506" y="255" text-anchor="middle" fill="#9AA5B1" font-size="11">Object Layout</text>
+        </g>
+        <g class="node" data-target="d4">
+          <circle cx="425" cy="345" r="40" fill="rgba(185,140,232,.14)" stroke="var(--c4)" stroke-width="1.5"/>
+          <text x="425" y="341" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">垃圾回收</text>
+          <text x="425" y="357" text-anchor="middle" fill="#9AA5B1" font-size="11">GC</text>
+        </g>
+        <g class="node" data-target="d5">
+          <circle cx="295" cy="345" r="40" fill="rgba(111,199,222,.14)" stroke="var(--c5)" stroke-width="1.5"/>
+          <text x="295" y="341" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">执行引擎</text>
+          <text x="295" y="357" text-anchor="middle" fill="#9AA5B1" font-size="11">Bytecode · JIT</text>
+        </g>
+        <g class="node" data-target="d6">
+          <circle cx="214" cy="243" r="40" fill="rgba(232,138,165,.14)" stroke="var(--c6)" stroke-width="1.5"/>
+          <text x="214" y="239" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">并发模型</text>
+          <text x="214" y="255" text-anchor="middle" fill="#9AA5B1" font-size="11">JMM · Locks</text>
+        </g>
+        <g class="node" data-target="d7">
+          <circle cx="243" cy="117" r="40" fill="rgba(227,210,122,.14)" stroke="var(--c7)" stroke-width="1.5"/>
+          <text x="243" y="113" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">监控调优</text>
+          <text x="243" y="129" text-anchor="middle" fill="#9AA5B1" font-size="11">JFR · jcmd</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<main class="wrap">
+
+<!-- ===== ① 类加载机制 ===== -->
+<section class="domain c1" id="d1">
+  <div class="domain-head">
+    <span class="domain-no">01</span>
+    <span class="domain-title">类加载机制</span>
+    <span class="domain-en">CLASS LOADING</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>.class 文件只是一个蓝图，JVM 按需把它读进内存、校验、准备好静态存储，最终生成可用的 Class 对象</b>。主线是「类加载器层级 → 双亲委派 → 五阶段生命周期」。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">类加载器层级</div>
+      <div class="s"><span class="path">java.lang.ClassLoader</span> · <span class="path">java.lang.module</span></div>
+      <div class="d">Bootstrap（启动类加载器，加载 java.base）→ Platform（平台类加载器）→ App（应用类加载器）→ 自定义。JDK 9 模块化后由 Launcher 构造，层级由「父引用」串联。</div>
+    </div>
+    <div class="card">
+      <div class="k">双亲委派模型</div>
+      <div class="s"><span class="path">ClassLoader.loadClass()</span></div>
+      <div class="d">先问父加载器，父找不到才自己加载。保证核心类只被 Bootstrap 加载一次，避免同名类被替换、杜绝核心 API 被篡改。</div>
+    </div>
+    <div class="card">
+      <div class="k">五阶段生命周期</div>
+      <div class="s"><span class="path">HotSpot: classfile/classFileParser.cpp</span></div>
+      <div class="d">加载 Loading → 验证 Verification → 准备 Preparation → 解析 Resolution → 初始化 Initialization。前 4 步对应「读进来、验真伪、备空间、连符号」，第 5 步才执行静态代码。</div>
+    </div>
+    <div class="card">
+      <div class="k">常量池与符号引用</div>
+      <div class="s"><span class="path">classfile/classFileParser.cpp · constantPool.cpp</span></div>
+      <div class="d">类文件里的 CONSTANT_Class / Methodref 等是符号引用，解析阶段才把它们替换为直接引用（内存地址/偏移）。</div>
+    </div>
+    <div class="card">
+      <div class="k">打破双亲委派</div>
+      <div class="s"><span class="path">java.util.ServiceLoader</span> · SPI 机制</div>
+      <div class="d">JDBC / JNDI 等 SPI 场景「父问子要」；Tomcat 等容器按应用隔离类加载器。理解双亲委派，才能理解这些反例为什么存在。</div>
+    </div>
+    <div class="card">
+      <div class="k">模块化 JPMS</div>
+      <div class="s"><span class="path">java.lang.module.ModuleLayer</span></div>
+      <div class="d">JDK 9 起模块描述符（module-info.class）参与解析：module → package → class，类加载与模块边界共同决定可见性。</div>
+    </div>
+    <div class="card">
+      <div class="k">相关异常与 OOM</div>
+      <div class="s"><span class="path">java.lang.NoClassDefFoundError · OutOfMemoryError: Metaspace</span></div>
+      <div class="d">类找不到、静态初始化失败、元空间放不下类元数据，是类加载层的三类典型故障出口。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ② 运行时数据区 ===== -->
+<section class="domain c2" id="d2">
+  <div class="domain-head">
+    <span class="domain-no">02</span>
+    <span class="domain-title">运行时数据区</span>
+    <span class="domain-en">RUNTIME DATA AREAS</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>线程私有的是「干活用的草稿纸」，线程共享的是「放东西的大仓库」</b>。栈管执行、堆管对象、方法区管类信息，这是内存模型的第一性原理。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">程序计数器 PC</div>
+      <div class="s"><span class="path">java.lang.Thread</span></div>
+      <div class="d">线程私有，记录当前执行到哪条字节码。唯一不会 OOM 的区域；线程切换后靠它恢复执行位置。</div>
+    </div>
+    <div class="card">
+      <div class="k">虚拟机栈 JVM Stack</div>
+      <div class="s"><span class="path">java.lang.StackOverflowError</span></div>
+      <div class="d">线程私有，由栈帧组成：局部变量表 + 操作数栈 + 动态链接 + 返回地址。每个方法调用压一帧，递归过深抛 StackOverflowError。</div>
+    </div>
+    <div class="card">
+      <div class="k">本地方法栈</div>
+      <div class="s"><span class="path">jdk.internal.misc.Unsafe</span></div>
+      <div class="d">为 native 方法服务。HotSpot 中与虚拟机栈合并实现；Unsafe 是 Java 触碰本地内存/对象布局的窗口。</div>
+    </div>
+    <div class="card">
+      <div class="k">堆 Heap</div>
+      <div class="s"><span class="path">java.lang.OutOfMemoryError: Java heap space</span></div>
+      <div class="d">线程共享，几乎所有对象实例的出生地。分代收集下为 新生代(Eden+S0+S1)+老年代；G1 起按 Region 划分，不再物理连续。</div>
+    </div>
+    <div class="card">
+      <div class="k">方法区 / 元空间</div>
+      <div class="s"><span class="path">java.lang.Class</span> · <span class="path">OutOfMemoryError: Metaspace</span></div>
+      <div class="d">JDK 8 起用本地内存的 Metaspace 承载：类元数据、运行时常量池、方法字节码。静态变量在 JDK 7 后移入堆，注意区分。</div>
+    </div>
+    <div class="card">
+      <div class="k">字符串常量池</div>
+      <div class="s"><span class="path">java.lang.String</span> · <span class="path">String.intern()</span></div>
+      <div class="d">JDK 7 起移到堆中，存储字符串字面量与 intern 结果；是理解「== 与 equals」差异、以及常量池 OOM 的关键。</div>
+    </div>
+    <div class="card">
+      <div class="k">直接内存</div>
+      <div class="s"><span class="path">java.nio.ByteBuffer · DirectByteBuffer</span></div>
+      <div class="d">堆外内存，NIO 零拷贝与 Netty 的基础；不受 -Xmx 约束，由 -XX:MaxDirectMemorySize 限制，常见于「看着堆很小却 OOM」的排查。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ③ 对象模型与内存布局 ===== -->
+<section class="domain c3" id="d3">
+  <div class="domain-head">
+    <span class="domain-no">03</span>
+    <span class="domain-title">对象模型与内存布局</span>
+    <span class="domain-en">OBJECT MODEL &amp; MEMORY LAYOUT</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>new 出来的对象在堆里是一块有固定结构的二进制块：头（身份信息）+ 数据（字段值）+ 对齐（补位）</b>。理解对象布局，才能理解锁、GC 年龄、内存占用。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">对象头 Mark Word</div>
+      <div class="s"><span class="path">HotSpot: oops/markWord.hpp</span></div>
+      <div class="d">64 位里按位复用：锁状态、hashCode、GC 分代年龄、是否偏向。一个字段同时承载多个身份，是 JVM 极致的位压缩。</div>
+    </div>
+    <div class="card">
+      <div class="k">类型指针 Klass Pointer</div>
+      <div class="s"><span class="path">oops/oopDesc.hpp · klass.hpp</span></div>
+      <div class="d">指向方法区中的 Klass（类元数据），对象据此找到自己的类。开启压缩指针后从 8 字节压到 4 字节。</div>
+    </div>
+    <div class="card">
+      <div class="k">实例数据与对齐</div>
+      <div class="s"><span class="path">oops/klass.hpp · java.lang.Object</span></div>
+      <div class="d">字段按声明序/重排布局，8 字节对齐填充。字段顺序影响对象大小与缓存行，是 jol 工具能测出「重排省内存」的原因。</div>
+    </div>
+    <div class="card">
+      <div class="k">对象创建路径</div>
+      <div class="s"><span class="path">jdk.internal.misc.Unsafe.allocateInstance</span></div>
+      <div class="d">new 的完整链路：类加载检查 → 分配内存（指针碰撞/空闲列表）→ 零值初始化 → 设置对象头 → 执行 &lt;init&gt;。TLAB 线程本地分配避免竞争。</div>
+    </div>
+    <div class="card">
+      <div class="k">指针压缩</div>
+      <div class="s"><span class="path">-XX:+UseCompressedOops（JDK 8 起 64 位默认开启）</span></div>
+      <div class="d">堆 ≤32G 时普通对象指针用 32 位表示，省一半引用内存；堆超过 32G 自动关闭，是「为什么 32G 是个坎」的由来。</div>
+    </div>
+    <div class="card">
+      <div class="k">逃逸分析</div>
+      <div class="s"><span class="path">HotSpot: c2/escapeAnalysis.cpp</span></div>
+      <div class="d">对象不逃逸方法作用域 → 栈上分配或标量替换（拆成字段），配合锁消除。解释了「局部小对象为什么不产生 GC 压力」。</div>
+    </div>
+    <div class="card">
+      <div class="k">对象大小观测</div>
+      <div class="s"><span class="path">jdk.jol（OpenJDK 官方工具，IDEA 插件可用）</span></div>
+      <div class="d">Java Object Layout：打印对象头、字段偏移、占用字节。把「内存布局」从抽象概念变成一行行可核对的数据。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ④ 垃圾回收 ===== -->
+<section class="domain c4" id="d4">
+  <div class="domain-head">
+    <span class="domain-no">04</span>
+    <span class="domain-title">垃圾回收</span>
+    <span class="domain-en">GARBAGE COLLECTION</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>JVM 从「根」出发做可达性分析，不可达的对象就是垃圾，再用不同算法腾出空间</b>。现代收集器的进化史 = 降低停顿时间（STW）的历史。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">可达性分析</div>
+      <div class="s"><span class="path">HotSpot: gc/shared/collectedHeap.cpp</span></div>
+      <div class="d">GC Roots：栈帧局部变量、静态字段、JNI 引用、常量池引用、同步监视器、JVM 内部引用。从根出发遍历，不可达即垃圾。</div>
+    </div>
+    <div class="card">
+      <div class="k">引用类型体系</div>
+      <div class="s"><span class="path">java.lang.ref.Reference · Soft/Weak/PhantomReference</span></div>
+      <div class="d">强引用（默认）→ 软引用（内存不足才回收，缓存场景）→ 弱引用（下次 GC 即回收，ThreadLocal 键）→ 虚引用（无法访问对象，仅通知，DirectByteBuffer 清理用）。</div>
+    </div>
+    <div class="card">
+      <div class="k">三大基础算法</div>
+      <div class="s"><span class="path">gc/shared/ · gc/g1/</span></div>
+      <div class="d">标记-清除（碎片化）、复制（新生代，无碎片但浪费一半）、标记-整理（老年代，移动对象）。分代 = 三种算法的组合拳。</div>
+    </div>
+    <div class="card">
+      <div class="k">分代与晋升</div>
+      <div class="s"><span class="path">gc/shared/generationSpec.hpp</span></div>
+      <div class="d">新生代 Eden + 两个 Survivor（默认 8:1:1），Minor GC 存活对象在 S0/S1 间复制，年龄到阈值（默认 15）晋升老年代；大对象直接进老年代。</div>
+    </div>
+    <div class="card">
+      <div class="k">G1 收集器</div>
+      <div class="s"><span class="path">gc/g1/ · -XX:+UseG1GC（JDK 9 起默认）</span></div>
+      <div class="d">堆划分为 Region，逻辑分代、物理连续；RSet 记录跨区引用，并发标记 + 可预测停顿（-XX:MaxGCPauseMillis）。</div>
+    </div>
+    <div class="card">
+      <div class="k">ZGC / Shenandoah</div>
+      <div class="s"><span class="path">gc/z/ · gc/shenandoah/</span></div>
+      <div class="d">低延迟收集器：ZGC 用染色指针 + 读屏障，停顿不随堆大小增长（毫秒级）；Shenandoah 用连接缓冲 + 转发指针。JDK 21 中 ZGC 已支持分代。</div>
+    </div>
+    <div class="card">
+      <div class="k">并发标记与屏障</div>
+      <div class="s"><span class="path">gc/g1/g1ConcurrentMark.cpp · cardTable.hpp</span></div>
+      <div class="d">三色标记（白灰黑）防漏标，SATB 快照 + 写屏障处理并发引用变化；卡表 Card Table 记录跨代/跨区引用，是 Remembered Set 的底层。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑤ 执行引擎与字节码 ===== -->
+<section class="domain c5" id="d5">
+  <div class="domain-head">
+    <span class="domain-no">05</span>
+    <span class="domain-title">执行引擎与字节码</span>
+    <span class="domain-en">EXECUTION ENGINE &amp; BYTECODE</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>字节码是 JVM 的「汇编」，执行引擎先用解释器逐条翻译，热点代码再被 JIT 编译成机器码直接执行</b>。性能的秘密全在「编译到什么程度」。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">字节码指令集</div>
+      <div class="s"><span class="path">javap -c 反汇编 · HotSpot: interpreter/bytecodeInterpreter.cpp</span></div>
+      <div class="d">约 200+ 条指令，基于操作数栈：load/store、运算、new、invokevirtual/invokestatic、跳转。一条 Java 语句 = 若干条字节码。</div>
+    </div>
+    <div class="card">
+      <div class="k">解释执行</div>
+      <div class="s"><span class="path">interpreter/ · templateTable.cpp</span></div>
+      <div class="d">逐条取指-解码-执行，启动快但慢。HotSpot 用模板解释器：每个字节码指令预生成机器码模板。</div>
+    </div>
+    <div class="card">
+      <div class="k">分层编译</div>
+      <div class="s"><span class="path">runtime/compilationPolicy.cpp · -XX:+TieredCompilation（默认）</span></div>
+      <div class="d">C1（第 1~3 层）：快速编译 + 采集 profile；C2（第 4 层）：慢但激进优化。方法计数器和回边计数器判定热点，-XX:CompileThreshold 可调。</div>
+    </div>
+    <div class="card">
+      <div class="k">方法内联</div>
+      <div class="s"><span class="path">c2/ · -XX:MaxInlineSize</span></div>
+      <div class="d">JIT 最重要优化：把被调方法体直接展开到调用处，消除调用开销并让后续优化「看得更远」。getter/setter 几乎必被内联。</div>
+    </div>
+    <div class="card">
+      <div class="k">逃逸分析优化链</div>
+      <div class="s"><span class="path">c2/escapeAnalysis.cpp</span></div>
+      <div class="d">栈上分配、标量替换、锁消除、消除无用字段——都建立在「对象没逃逸」的证明上。C2 的看家本领。</div>
+    </div>
+    <div class="card">
+      <div class="k">动态调用 invokedynamic</div>
+      <div class="s"><span class="path">java.lang.invoke.* · LambdaMetafactory</span></div>
+      <div class="d">JDK 7 引入，Lambda、字符串拼接、序列化等全靠它：调用点先引导（bootstrap）解析策略，再按需绑定，为语言特性留出后门。</div>
+    </div>
+    <div class="card">
+      <div class="k">观测编译产物</div>
+      <div class="s"><span class="path">-XX:+PrintCompilation · -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining</span></div>
+      <div class="d">看哪些方法被编译、为何内联失败，是调优「为什么这么慢」的第一步。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑥ 并发与内存模型 ===== -->
+<section class="domain c6" id="d6">
+  <div class="domain-head">
+    <span class="domain-no">06</span>
+    <span class="domain-title">并发与内存模型</span>
+    <span class="domain-en">JMM &amp; CONCURRENCY</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>JMM 规定「线程什么时候能看到别人的写入」，锁与 volatile 是达成这个约定的工具</b>。它不管理真实硬件缓存，而是定义一套抽象的可见性规则。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">JMM 抽象</div>
+      <div class="s"><span class="path">java.lang.Thread · 主内存/工作内存模型</span></div>
+      <div class="d">每个线程有私有工作内存（寄存器/缓存抽象），变量读写在副本上进行，何时同步回主内存由 JMM 规则决定。对应真实硬件：CPU 缓存 + 缓存一致性。</div>
+    </div>
+    <div class="card">
+      <div class="k">happens-before</div>
+      <div class="s"><span class="path">详见下方专题②</span></div>
+      <div class="d">8 条规则（程序次序、锁、volatile、传递、线程 start/join、中断、final、对象构造）：A happens-before B 则 A 的写入对 B 可见。是判断并发正确性的「证明依据」。</div>
+    </div>
+    <div class="card">
+      <div class="k">volatile</div>
+      <div class="s"><span class="path">jdk.internal.misc.Unsafe · 内存屏障</span></div>
+      <div class="d">读屏障/写屏障禁止重排序 + 强制写回主内存。保证可见性与有序性，但不保证原子性（i++ 仍不安全）。经典用法：状态标志、双重检查锁。</div>
+    </div>
+    <div class="card">
+      <div class="k">synchronized 与锁升级</div>
+      <div class="s"><span class="path">HotSpot: runtime/synchronizer.cpp · ObjectMonitor</span></div>
+      <div class="d">Monitor 机制；锁状态：无锁 → 偏向 → 轻量级（CAS 自旋）→ 重量级（阻塞）。JDK 15 起偏向锁废弃，轻量级锁成为默认快路径。</div>
+    </div>
+    <div class="card">
+      <div class="k">AQS 框架</div>
+      <div class="s"><span class="path">java.util.concurrent.locks.AbstractQueuedSynchronizer</span></div>
+      <div class="d">CLH 队列 + state 状态机：ReentrantLock、Semaphore、CountDownLatch、ReentrantReadWriteLock 都是它的子类。理解 AQS = 理解半个 JUC。</div>
+    </div>
+    <div class="card">
+      <div class="k">并发容器与原子</div>
+      <div class="s"><span class="path">java.util.concurrent.ConcurrentHashMap · java.util.concurrent.atomic.*</span></div>
+      <div class="d">CHM 分段锁演进到 CAS + synchronized 细粒度锁；Atomic* 基于 Unsafe 的 CAS + volatile 字段，配合 LongAdder 应对高并发计数。</div>
+    </div>
+    <div class="card">
+      <div class="k">线程池</div>
+      <div class="s"><span class="path">java.util.concurrent.ThreadPoolExecutor</span></div>
+      <div class="d">核心线程 → 工作队列 → 最大线程 → 拒绝策略四段式；ctl 一个 int 打包 workerCount + runState。线程工厂、拒绝策略、队列选型是调优入口。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑦ 性能监控与调优 ===== -->
+<section class="domain c7" id="d7">
+  <div class="domain-head">
+    <span class="domain-no">07</span>
+    <span class="domain-title">性能监控与调优</span>
+    <span class="domain-en">MONITORING &amp; TUNING</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>先用工具拿到「内存、GC、线程、锁」四类现场数据，再反向定位到代码</b>。调优不是调参数，是「测量 → 假设 → 验证」的循环。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">JVM 命令行工具</div>
+      <div class="s"><span class="path">jps · jstat · jinfo · jmap · jstack · jcmd（bin/ 下）</span></div>
+      <div class="d">看进程、看 GC/类加载统计、看参数、堆转储、线程快照。jcmd 是 JDK 8 后的「瑞士军刀」，可替代大部分子命令。</div>
+    </div>
+    <div class="card">
+      <div class="k">JFR 与 Mission Control</div>
+      <div class="s"><span class="path">jdk.jfr · jfr 命令 · JDK Flight Recorder</span></div>
+      <div class="d">低开销的飞行记录器：GC、锁、IO、分配采样全覆盖，生产环境常开；配合 JMC 可视化分析事件时间线。</div>
+    </div>
+    <div class="card">
+      <div class="k">GC 日志</div>
+      <div class="s"><span class="path">-Xlog:gc*:file=gc.log:time,uptime,level,tags（JDK 9 起统一）</span></div>
+      <div class="d">统一日志框架 -Xlog 取代 PrintGCDetails。看 GC 频率、停顿、晋升速率，判断「内存该加还是该减」。</div>
+    </div>
+    <div class="card">
+      <div class="k">核心参数速查</div>
+      <div class="s"><span class="path">-Xms/-Xmx · -XX:MetaspaceSize · -XX:MaxGCPauseMillis · -XX:+UseG1GC / +UseZGC</span></div>
+      <div class="d">堆大小（建议相等避免扩容）、元空间、停顿目标、收集器选择。参数是手段，目标是吞吐/延迟/内存的三角权衡。</div>
+    </div>
+    <div class="card">
+      <div class="k">OOM 分类与排查</div>
+      <div class="s"><span class="path">-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=</span></div>
+      <div class="d">Java heap space / Metaspace / Direct buffer memory / StackOverflowError / GC overhead limit：先看类型定区域，再用 MAT/jhat 分析堆转储定位泄漏。</div>
+    </div>
+    <div class="card">
+      <div class="k">线程与锁分析</div>
+      <div class="s"><span class="path">jstack · jcmd Thread.print · 死锁检测</span></div>
+      <div class="d">线程状态（RUNNABLE/BLOCKED/WAITING）+ 栈顶方法；jstack 自动检测死锁环。CPU 高时用 top -H + jstack 对线程 id 定位热点。</div>
+    </div>
+    <div class="card">
+      <div class="k">常用工具链</div>
+      <div class="s"><span class="path">jol（对象布局）· MAT（堆分析）· async-profiler（火焰图）</span></div>
+      <div class="d">三件套：jol 看内存布局、MAT 找泄漏、async-profiler 出 CPU/分配火焰图。IDE 插件（IDEA 自带 profiling）可覆盖大部分场景。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 专题区 ===== -->
+<section class="topic" id="topic">
+  <div class="wrap" style="padding:0;">
+    <div class="topic-title">专题精讲</div>
+    <p class="topic-sub">把跨领域的知识点串成完整链路：一个对象的一生、happens-before 八大规则、类加载五阶段详解。这是理解「内存」与「并发」的钥匙。</p>
+    <div class="topic-grid">
+      <div class="topic-box t1">
+        <h4>① 一个对象的一生<em>LIFE CYCLE</em></h4>
+        <ul>
+          <li><span class="m">1 · 类加载</span>：首次 new 触发类加载五阶段，类元数据进入方法区</li>
+          <li><span class="m">2 · 分配</span>：TLAB 优先，失败走 CAS；Eden 放不下则直接进老年代</li>
+          <li><span class="m">3 · 初始化</span>：零值 → 对象头（锁/年龄/hash）→ &lt;init&gt; 执行构造</li>
+          <li><span class="m">4 · 使用</span>：栈帧局部变量表持有引用，可能逃逸也可能被内联优化</li>
+          <li><span class="m">5 · 可达性变化</span>：引用置空/出栈后不可达，进入垃圾候选</li>
+          <li><span class="m">6 · 回收</span>：Minor GC 幸存者复制 → 晋升老年代 → Full GC 标记整理</li>
+          <li><span class="m">7 · finalize 与终结</span>：finalize 机制已废弃（JDK 9 起），Cleaner 取而代之</li>
+        </ul>
+      </div>
+      <div class="topic-box t2">
+        <h4>② happens-before 八大规则<em>JMM</em></h4>
+        <div class="algo c6">1 程序次序  同线程内，写在前 → 读在后
+2 监视器锁  解锁 → 后续加锁
+3 volatile  写 volatile → 之后读同一 volatile
+4 传递性    A → B 且 B → C，则 A → C
+5 线程启动  Thread.start() → 该线程内所有动作
+6 线程终止  线程内动作 → 其他线程 join() 返回后
+7 线程中断  interrupt() → 检测到中断（isInterrupted）
+8 对象终结  构造完成 → finalize() 开始</div>
+      </div>
+      <div class="topic-box t3">
+        <h4>③ 类加载五阶段详解<em>CLASS LIFE CYCLE</em></h4>
+        <ul>
+          <li><span class="m">加载</span> · 读字节流 → 解析为方法区数据结构 → 生成 java.lang.Class</li>
+          <li><span class="m">验证</span> · 文件格式/元数据/字节码/符号引用四关，防恶意字节码</li>
+          <li><span class="m">准备</span> · 为静态字段分配内存并赋「零值」（不是代码里的初值）</li>
+          <li><span class="m">解析</span> · 符号引用 → 直接引用；可延迟到首次使用（lazy）</li>
+          <li><span class="m">初始化</span> · 执行 &lt;clinit&gt;：静态块与静态字段赋值；<span class="m">唯一被主动使用触发的阶段</span></li>
+          <li>触发点：new / getstatic / putstatic / invokestatic / 反射 / 初始化子类</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 阅读路径 ===== -->
+<section class="pathway" id="pathway">
+  <div class="wrap" style="padding:0;">
+    <div class="pathway-title">建议阅读路径</div>
+    <p class="pathway-sub">按依赖顺序组织：先「内存长什么样」（数据区+对象），再「东西怎么进来怎么出去」（类加载+GC），再「代码怎么跑」（执行引擎），最后「多线程怎么协作」与「怎么观测」。JDK 标准库类可直接在 IDE 里看 src.zip，HotSpot 路径供在线浏览。</p>
+    <div class="steps">
+      <div class="step">
+        <div class="no">1</div>
+        <h5>运行时数据区 + 对象模型</h5>
+        <p>先建立内存地图：栈/堆/方法区 → markWord.hpp 对象头 → 指针压缩 → jol 实测对象大小</p>
+      </div>
+      <div class="step">
+        <div class="no">2</div>
+        <h5>类加载机制</h5>
+        <p>ClassLoader 双亲委派 → 五阶段生命周期 → classFileParser.cpp 解析 → SPI 反例 → JPMS</p>
+      </div>
+      <div class="step">
+        <div class="no">3</div>
+        <h5>垃圾回收</h5>
+        <p>可达性分析 → 引用体系 → 三大算法 → 分代 → G1 Region/RSet → ZGC 染色指针 → GC 日志验证</p>
+      </div>
+      <div class="step">
+        <div class="no">4</div>
+        <h5>执行引擎</h5>
+        <p>javap 读字节码 → 解释器 → 分层编译 C1/C2 → 方法内联 → 逃逸分析 → PrintCompilation 验证</p>
+      </div>
+      <div class="step">
+        <div class="no">5</div>
+        <h5>并发模型 JMM</h5>
+        <p>主内存/工作内存 → happens-before → volatile 屏障 → 锁升级 → AQS 源码 → ThreadPoolExecutor</p>
+      </div>
+      <div class="step">
+        <div class="no">6</div>
+        <h5>监控与调优实战</h5>
+        <p>jstat/jstack/jcmd 采集现场 → JFR 时间线 → GC 日志 → 制造 OOM 用 MAT 定位 → async-profiler 火焰图</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>OpenJDK 21.0.2 (HotSpot) · 知识源：JDK 自带 src.zip + OpenJDK 主线源码路径</span>
+    <span>HotSpot 路径标注为在线浏览参考 · 未 clone OpenJDK 仓库</span>
+  </div>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  var chips = Array.prototype.slice.call(document.querySelectorAll(".chip"));
+  var nodes = Array.prototype.slice.call(document.querySelectorAll(".graph .node"));
+  var targets = ["overview","d1","d2","d3","d4","d5","d6","d7","topic","pathway"];
+
+  function setActive(id){
+    chips.forEach(function(c){ c.classList.toggle("on", c.getAttribute("data-target") === id); });
+  }
+  function jump(id){
+    var el = document.getElementById(id);
+    if(el){ el.scrollIntoView({behavior:"smooth", block:"start"}); setActive(id); }
+  }
+  chips.forEach(function(c){
+    c.addEventListener("click", function(){ jump(c.getAttribute("data-target")); });
+  });
+  nodes.forEach(function(n){
+    n.addEventListener("click", function(){ jump(n.getAttribute("data-target")); });
+  });
+
+  var sections = targets.map(function(id){ return document.getElementById(id); });
+  if("IntersectionObserver" in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){ setActive(en.target.id); }
+      });
+    }, {rootMargin:"-20% 0px -70% 0px"});
+    sections.forEach(function(s){ if(s) io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>
