@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>运行时数据区 · JVM 内存地图</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%236FC7DE'/%3E%3Ctext x='32' y='45' font-size='38' font-weight='700' text-anchor='middle' fill='%230F141B'%3EJ%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;900&display=swap">
+<style>
+  :root{
+    --bg:#0F141B;
+    --bg2:#141B24;
+    --card:#161E28;
+    --card2:#1B2531;
+    --text:#E7EAEE;
+    --text2:#9AA5B1;
+    --line:rgba(255,255,255,.07);
+    --mono:"Cascadia Code",ui-monospace,Consolas,"SF Mono",Menlo,monospace;
+    --c1:#E8A87C; /* 线程私有 橙 */
+    --c2:#7FB4E8; /* 程序计数器/本地方法栈 蓝 */
+    --c3:#6ECBA8; /* 堆 绿 */
+    --c4:#B98CE8; /* 方法区 紫 */
+    --c5:#6FC7DE; /* 虚拟机栈 青 */
+    --c6:#E88AA5; /* 常量池 玫红 */
+    --c7:#E3D27A; /* 直接内存 黄 */
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    font-size:15px;line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit;text-decoration:none;}
+  code, .path{
+    font-family:var(--mono);
+    font-size:.86em;
+  }
+  .path{
+    color:var(--text2);
+    background:rgba(0,0,0,.32);
+    border:1px solid rgba(255,255,255,.05);
+    padding:1px 6px;
+    border-radius:5px;
+    white-space:nowrap;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px;}
+
+  /* ===== 顶栏导航 ===== */
+  header{
+    position:sticky;top:0;z-index:50;
+    background:rgba(15,20,27,.88);
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .nav{display:flex;align-items:center;gap:8px;padding:10px 0;overflow-x:auto;scrollbar-width:none;}
+  .nav::-webkit-scrollbar{display:none;}
+  .brand{
+    font-weight:900;font-size:15px;letter-spacing:.5px;white-space:nowrap;
+    margin-right:10px;
+  }
+  .brand b{color:#6FC7DE;}
+  .chip{
+    flex:0 0 auto;
+    padding:4px 12px;border-radius:999px;
+    font-size:12.5px;color:var(--text2);
+    border:1px solid var(--line);
+    cursor:pointer;white-space:nowrap;
+    transition:color .15s,border-color .15s,background .15s;
+  }
+  .chip:hover{color:var(--text);border-color:rgba(255,255,255,.22);}
+  .chip.on{color:var(--text);background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.28);}
+  .chip .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;}
+
+  /* ===== Hero ===== */
+  .hero{padding:56px 0 44px;}
+  .hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:36px;align-items:center;}
+  .hero .kicker{
+    font-size:12.5px;letter-spacing:2px;color:var(--text2);
+    text-transform:uppercase;margin-bottom:14px;
+  }
+  .hero h1{font-size:38px;line-height:1.22;font-weight:900;letter-spacing:.5px;}
+  .hero h1 .hl{color:#6FC7DE;}
+  .hero .sub{margin-top:14px;color:var(--text2);font-size:15px;max-width:540px;}
+  .hero .sub b{color:var(--text);font-weight:600;}
+  .pillars{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap;}
+  .pillar{
+    border:1px solid var(--line);border-radius:10px;padding:10px 14px;
+    background:var(--card);flex:1 1 150px;min-width:0;
+  }
+  .pillar .n{font-size:11px;color:var(--text2);letter-spacing:1px;margin-bottom:3px;}
+  .pillar .t{font-size:13.5px;font-weight:600;}
+  .pillar .f{font-family:var(--mono);font-size:11.5px;color:var(--text2);margin-top:3px;display:block;}
+
+  .graph{position:relative;}
+  .graph svg{width:100%;height:auto;display:block;}
+  .graph .node{cursor:pointer;transition:opacity .15s;}
+  .graph .node:hover{opacity:.72;}
+  .graph text{font-family:"Noto Sans SC",sans-serif;user-select:none;}
+
+  /* ===== 区域区块 ===== */
+  .domain{padding:34px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .domain-head{display:flex;align-items:baseline;gap:12px;margin-bottom:6px;}
+  .domain-no{font-family:var(--mono);font-size:15px;font-weight:700;}
+  .domain-title{font-size:23px;font-weight:700;letter-spacing:.3px;}
+  .domain-en{font-size:12px;color:var(--text2);letter-spacing:1px;}
+  .domain-desc{color:var(--text2);font-size:13.5px;margin:4px 0 18px 40px;max-width:760px;}
+  .domain-desc b{color:var(--text);font-weight:600;}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;}
+  .card{
+    background:var(--card);border:1px solid var(--line);
+    border-radius:10px;padding:14px 16px;
+    display:flex;flex-direction:column;gap:8px;min-width:0;
+    transition:transform .15s,border-color .15s;
+  }
+  .card:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.16);}
+  .card .k{font-size:14.5px;font-weight:600;}
+  .card .d{font-size:12.5px;color:var(--text2);line-height:1.6;}
+  .card .s{font-size:12px;color:var(--text);}
+  .card .s .path{white-space:normal;word-break:break-all;}
+  .c1 .domain-no,.c1 .domain-title{color:var(--c1);}
+  .c2 .domain-no,.c2 .domain-title{color:var(--c2);}
+  .c3 .domain-no,.c3 .domain-title{color:var(--c3);}
+  .c4 .domain-no,.c4 .domain-title{color:var(--c4);}
+  .c5 .domain-no,.c5 .domain-title{color:var(--c5);}
+  .c6 .domain-no,.c6 .domain-title{color:var(--c6);}
+  .c7 .domain-no,.c7 .domain-title{color:var(--c7);}
+  .c1 .card{border-left:3px solid var(--c1);}
+  .c2 .card{border-left:3px solid var(--c2);}
+  .c3 .card{border-left:3px solid var(--c3);}
+  .c4 .card{border-left:3px solid var(--c4);}
+  .c5 .card{border-left:3px solid var(--c5);}
+  .c6 .card{border-left:3px solid var(--c6);}
+  .c7 .card{border-left:3px solid var(--c7);}
+
+  /* ===== 图表容器 ===== */
+  .fig{
+    background:var(--card2);border:1px solid var(--line);border-radius:10px;
+    padding:18px 20px;margin:16px 0 4px;
+  }
+  .fig h4{font-size:14px;font-weight:700;margin-bottom:4px;}
+  .fig .cap{font-size:12px;color:var(--text2);margin-bottom:14px;}
+  .fig svg{width:100%;height:auto;display:block;}
+
+  /* ===== 专题 ===== */
+  .topic{padding:40px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .topic-title{font-size:23px;font-weight:700;margin-bottom:6px;}
+  .topic-sub{color:var(--text2);font-size:13.5px;margin-bottom:18px;}
+  .topic-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;}
+  .topic-box{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:16px 18px;}
+  .topic-box h4{font-size:14px;font-weight:700;margin-bottom:10px;}
+  .topic-box h4 em{font-style:normal;font-size:11px;font-weight:500;color:var(--text2);margin-left:6px;letter-spacing:1px;}
+  .topic-box ul{list-style:none;}
+  .topic-box li{font-size:13px;color:var(--text);padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.06);}
+  .topic-box li:last-child{border-bottom:none;}
+  .topic-box li .m{color:var(--text2);}
+  .topic-box.t1 h4{color:var(--c5);}
+  .topic-box.t2 h4{color:var(--c3);}
+  .topic-box.t3 h4{color:var(--c4);}
+  .topic-box.t4 h4{color:var(--c6);}
+  .algo{
+    font-family:var(--mono);font-size:12.5px;line-height:1.85;
+    background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);
+    border-radius:8px;padding:14px 16px;white-space:pre;overflow-x:auto;
+  }
+  .algo.c5{border-color:rgba(111,199,222,.25);color:#C4E6F0;}
+
+  /* ===== 时间轴 ===== */
+  .tl{display:grid;grid-template-columns:110px 1fr;gap:0 18px;margin-top:6px;}
+  .tl-item{display:contents;}
+  .tl-time{
+    font-family:var(--mono);font-size:13px;font-weight:700;color:var(--c4);
+    text-align:right;padding:10px 0;white-space:nowrap;
+  }
+  .tl-body{
+    position:relative;padding:10px 0 10px 18px;border-left:2px solid rgba(185,140,232,.35);
+  }
+  .tl-body::before{
+    content:"";position:absolute;left:-6px;top:16px;
+    width:10px;height:10px;border-radius:50%;
+    background:var(--c4);
+  }
+  .tl-body b{font-size:14px;display:block;margin-bottom:2px;}
+  .tl-body span{font-size:12.5px;color:var(--text2);display:block;}
+
+  /* ===== 表格 ===== */
+  .tbl-wrap{overflow-x:auto;margin-top:6px;}
+  table.tbl{
+    width:100%;border-collapse:collapse;table-layout:fixed;
+    font-size:13px;background:var(--card2);border-radius:10px;overflow:hidden;
+  }
+  table.tbl th{
+    background:rgba(255,255,255,.06);text-align:left;
+    padding:10px 12px;font-weight:700;font-size:12.5px;letter-spacing:.5px;
+  }
+  table.tbl td{padding:10px 12px;border-top:1px solid var(--line);color:var(--text);vertical-align:top;}
+  table.tbl td .m{color:var(--text2);}
+  table.tbl td code{color:#C4E6F0;font-size:.9em;}
+  .th-exception{width:18%;}
+  .th-region{width:14%;}
+  .th-cause{width:30%;}
+  .th-param{width:22%;}
+  .th-fix{width:16%;}
+
+  /* ===== 命令卡片 ===== */
+  .cmd-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:6px;}
+  .cmd{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;}
+  .cmd .k{font-size:14px;font-weight:700;margin-bottom:6px;}
+  .cmd .k .c{color:var(--c7);}
+  .cmd pre{
+    font-family:var(--mono);font-size:12px;line-height:1.7;color:#C4E6F0;
+    background:rgba(0,0,0,.35);border:1px solid rgba(111,199,222,.2);
+    border-radius:6px;padding:10px 12px;white-space:pre;overflow-x:auto;margin-bottom:8px;
+  }
+  .cmd .d{font-size:12.5px;color:var(--text2);}
+
+  /* ===== 阅读路径 ===== */
+  .pathway{padding:40px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .pathway-title{font-size:23px;font-weight:700;margin-bottom:6px;}
+  .pathway-sub{color:var(--text2);font-size:13.5px;margin-bottom:20px;}
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;counter-reset:step;}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;position:relative;}
+  .step .no{
+    font-family:var(--mono);font-size:12px;font-weight:700;color:#0F141B;
+    background:var(--text);width:22px;height:22px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;margin-bottom:10px;
+  }
+  .step h5{font-size:14.5px;font-weight:700;margin-bottom:6px;}
+  .step p{font-size:12.5px;color:var(--text2);}
+  .step p .path{white-space:normal;}
+
+  /* ===== 页脚 ===== */
+  footer{border-top:1px solid var(--line);padding:28px 0 40px;color:var(--text2);font-size:12.5px;}
+  footer .wrap{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+
+  /* ===== 响应式 ===== */
+  @media (max-width:860px){
+    .hero{padding:38px 0 30px;}
+    .hero-grid{grid-template-columns:1fr;gap:24px;}
+    .hero h1{font-size:28px;}
+    .domain-desc{margin-left:0;}
+    .card .s .path{white-space:normal;}
+    .tl{grid-template-columns:86px 1fr;}
+    .tl-time{font-size:12px;}
+    table.tbl{font-size:12px;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto;}
+    *{transition:none!important;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <div class="brand">JVM <b>内存地图</b></div>
+    <div class="chip on" data-target="overview"><span class="dot" style="background:#6FC7DE"></span>总览</div>
+    <div class="chip" data-target="d1"><span class="dot" style="background:var(--c1)"></span>线程私有区</div>
+    <div class="chip" data-target="d2"><span class="dot" style="background:var(--c3)"></span>Java 堆</div>
+    <div class="chip" data-target="d3"><span class="dot" style="background:var(--c4)"></span>方法区</div>
+    <div class="chip" data-target="d4"><span class="dot" style="background:var(--c6)"></span>常量池与直接内存</div>
+    <div class="chip" data-target="d5"><span class="dot" style="background:var(--c7)"></span>异常与参数</div>
+    <div class="chip" data-target="d6"><span class="dot" style="background:var(--text2)"></span>验证实验</div>
+    <div class="chip" data-target="pathway"><span class="dot" style="background:var(--text2)"></span>阅读路径</div>
+  </div>
+</header>
+
+<!-- ===== Hero ===== -->
+<section class="hero" id="overview">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="kicker">JVM · Runtime Data Areas · Deep Dive</div>
+      <h1>运行时数据区<br><span class="hl">JVM 的内存地图</span></h1>
+      <p class="sub">简单说：<b>JVM 把内存分成「线程私有的草稿纸」（PC、虚拟机栈、本地方法栈）和「线程共享的大仓库」（堆、方法区）</b>。谁用什么区域、区域里装什么、装满了抛什么异常，就是本页的全部内容。</p>
+      <div class="pillars">
+        <div class="pillar">
+          <div class="n">线程私有</div>
+          <div class="t">PC · 栈 · 本地方法栈</div>
+          <span class="f">随线程生灭 · 无 GC</span>
+        </div>
+        <div class="pillar">
+          <div class="n">线程共享</div>
+          <div class="t">堆 · 方法区</div>
+          <span class="f">GC 主战场 · 生命周期最长</span>
+        </div>
+        <div class="pillar">
+          <div class="n">堆外</div>
+          <div class="t">直接内存</div>
+          <span class="f">NIO · 不受 -Xmx 约束</span>
+        </div>
+      </div>
+    </div>
+    <div class="graph" aria-label="运行时数据区全景图">
+      <svg viewBox="0 0 720 470" role="img" aria-hidden="true">
+        <!-- 分栏 -->
+        <rect x="20" y="20" width="310" height="432" rx="12" fill="rgba(127,180,232,.05)" stroke="rgba(127,180,232,.22)"/>
+        <text x="175" y="47" text-anchor="middle" fill="#7FB4E8" font-size="13" font-weight="700">线程私有 Thread-Private</text>
+        <rect x="390" y="20" width="310" height="432" rx="12" fill="rgba(110,203,168,.05)" stroke="rgba(110,203,168,.22)"/>
+        <text x="545" y="47" text-anchor="middle" fill="#6ECBA8" font-size="13" font-weight="700">线程共享 Thread-Shared</text>
+
+        <!-- PC -->
+        <g class="node" data-target="d1">
+          <rect x="45" y="70" width="260" height="58" rx="8" fill="#141B24" stroke="#7FB4E8" stroke-width="1.4"/>
+          <text x="62" y="94" fill="#E7EAEE" font-size="13" font-weight="600">程序计数器 PC Register</text>
+          <text x="62" y="114" fill="#9AA5B1" font-size="11.5">当前字节码行号 · 唯一无 OOM 区域</text>
+        </g>
+        <!-- JVM Stack -->
+        <g class="node" data-target="d1">
+          <rect x="45" y="146" width="260" height="152" rx="8" fill="#141B24" stroke="#6FC7DE" stroke-width="1.4"/>
+          <text x="62" y="170" fill="#E7EAEE" font-size="13" font-weight="600">虚拟机栈 JVM Stack</text>
+          <text x="62" y="190" fill="#9AA5B1" font-size="11.5">-Xss 控制深度 · 栈帧为最小单位</text>
+          <rect x="66" y="206" width="216" height="26" rx="4" fill="rgba(111,199,222,.10)" stroke="rgba(111,199,222,.35)"/>
+          <text x="78" y="223" fill="#C4E6F0" font-size="11.5">帧3 · 调用链最外层</text>
+          <rect x="66" y="238" width="216" height="26" rx="4" fill="rgba(111,199,222,.14)" stroke="rgba(111,199,222,.4)"/>
+          <text x="78" y="255" fill="#C4E6F0" font-size="11.5">帧2 · 中间调用</text>
+          <rect x="66" y="270" width="216" height="26" rx="4" fill="rgba(111,199,222,.20)" stroke="rgba(111,199,222,.5)"/>
+          <text x="78" y="287" fill="#E7EAEE" font-size="11.5" font-weight="600">帧1 · 当前执行</text>
+        </g>
+        <!-- Native Stack -->
+        <g class="node" data-target="d1">
+          <rect x="45" y="316" width="260" height="58" rx="8" fill="#141B24" stroke="#7FB4E8" stroke-width="1.4"/>
+          <text x="62" y="340" fill="#E7EAEE" font-size="13" font-weight="600">本地方法栈 Native Stack</text>
+          <text x="62" y="360" fill="#9AA5B1" font-size="11.5">native 方法 · HotSpot 与虚拟机栈合并</text>
+        </g>
+
+        <!-- Heap -->
+        <g class="node" data-target="d2">
+          <rect x="415" y="70" width="260" height="192" rx="8" fill="#141B24" stroke="#6ECBA8" stroke-width="1.4"/>
+          <text x="432" y="94" fill="#E7EAEE" font-size="13" font-weight="600">Java 堆 Heap</text>
+          <text x="432" y="114" fill="#9AA5B1" font-size="11.5">-Xms / -Xmx · 对象分配主战场</text>
+          <rect x="432" y="128" width="148" height="42" rx="4" fill="rgba(110,203,168,.12)" stroke="rgba(110,203,168,.4)"/>
+          <text x="506" y="153" text-anchor="middle" fill="#BFE8D5" font-size="11.5">Eden（8）</text>
+          <rect x="586" y="128" width="40" height="42" rx="4" fill="rgba(110,203,168,.18)" stroke="rgba(110,203,168,.5)"/>
+          <text x="606" y="153" text-anchor="middle" fill="#BFE8D5" font-size="11.5">S0</text>
+          <rect x="632" y="128" width="40" height="42" rx="4" fill="rgba(110,203,168,.18)" stroke="rgba(110,203,168,.5)"/>
+          <text x="652" y="153" text-anchor="middle" fill="#BFE8D5" font-size="11.5">S1</text>
+          <rect x="432" y="178" width="240" height="76" rx="4" fill="rgba(185,140,232,.10)" stroke="rgba(185,140,232,.4)"/>
+          <text x="552" y="207" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">老年代 Old</text>
+          <text x="552" y="227" text-anchor="middle" fill="#9AA5B1" font-size="11">晋升 / 大对象</text>
+        </g>
+        <!-- Method Area -->
+        <g class="node" data-target="d3">
+          <rect x="415" y="280" width="260" height="112" rx="8" fill="#141B24" stroke="#B98CE8" stroke-width="1.4"/>
+          <text x="432" y="304" fill="#E7EAEE" font-size="13" font-weight="600">方法区（元空间 Metaspace）</text>
+          <text x="432" y="324" fill="#9AA5B1" font-size="11.5">本地内存 · -XX:MetaspaceSize</text>
+          <rect x="432" y="338" width="240" height="44" rx="4" fill="rgba(185,140,232,.12)" stroke="rgba(185,140,232,.4)"/>
+          <text x="552" y="357" text-anchor="middle" fill="#E7EAEE" font-size="11.5">运行时常量池</text>
+          <text x="552" y="373" text-anchor="middle" fill="#9AA5B1" font-size="11">类元数据 · 方法字节码</text>
+        </g>
+        <!-- Direct Memory -->
+        <g class="node" data-target="d4">
+          <rect x="415" y="410" width="260" height="42" rx="8" fill="rgba(227,210,122,.06)" stroke="rgba(227,210,122,.45)" stroke-dasharray="5 4"/>
+          <text x="545" y="436" text-anchor="middle" fill="#E3D27A" font-size="12" font-weight="600">直接内存 Direct Memory（堆外）</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<main class="wrap">
+
+<!-- ===== ① 线程私有区 ===== -->
+<section class="domain c1" id="d1">
+  <div class="domain-head">
+    <span class="domain-no">01</span>
+    <span class="domain-title">线程私有区</span>
+    <span class="domain-en">THREAD-PRIVATE AREAS</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>每个线程都有自己独立的三块「草稿纸」，互不共享、随线程生灭、不参与 GC</b>。它们回答的问题是：这条线程现在执行到哪、调用栈有多深、本地方法栈在哪。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">程序计数器 PC</div>
+      <div class="s"><span class="path">java.lang.Thread</span> · <span class="path">HotSpot: runtime/thread.cpp</span></div>
+      <div class="d">记录当前线程正在执行的字节码行号（native 方法时为 undefined）。线程切换后靠它恢复位置，是「线程怎么知道自己跑到哪」的答案。唯一不会 OOM 的区域。</div>
+    </div>
+    <div class="card">
+      <div class="k">虚拟机栈 JVM Stack</div>
+      <div class="s"><span class="path">java.lang.StackOverflowError</span> · <span class="path">-Xss256k</span></div>
+      <div class="d">每次方法调用压入一个栈帧（Frame）。栈深度超限抛 StackOverflowError；栈空间可扩展但通常固定。-Xss 控制单线程栈大小，递归越深占用越大。</div>
+    </div>
+    <div class="card">
+      <div class="k">本地方法栈</div>
+      <div class="s"><span class="path">jdk.internal.misc.Unsafe</span> · native 方法</div>
+      <div class="d">为 native（C/C++）方法服务。HotSpot 实现中与虚拟机栈合并；Unsafe 的本地内存操作、JNI 调用都经过这条路径。</div>
+    </div>
+    <div class="card">
+      <div class="k">栈帧 Frame</div>
+      <div class="s"><span class="path">HotSpot: runtime/frame.cpp</span></div>
+      <div class="d">方法执行的完整上下文：局部变量表 + 操作数栈 + 动态链接 + 返回地址（见下方专题图）。jstack 打印的每行 = 一个栈帧。</div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h4>专题图：一个栈帧的内部结构</h4>
+    <p class="cap">方法从调用到返回，栈帧承载全部执行状态。自上而下是编译期可确定与运行期动态两大部分。</p>
+    <svg viewBox="0 0 720 300" role="img" aria-label="栈帧结构示意图">
+      <!-- 左：栈帧 -->
+      <rect x="30" y="24" width="330" height="250" rx="10" fill="#161E28" stroke="#6FC7DE" stroke-width="1.4"/>
+      <text x="195" y="50" text-anchor="middle" fill="#E7EAEE" font-size="14" font-weight="700">栈帧 Frame</text>
+
+      <rect x="52" y="66" width="286" height="40" rx="6" fill="rgba(111,199,222,.10)" stroke="rgba(111,199,222,.4)"/>
+      <text x="68" y="83" fill="#C4E6F0" font-size="12" font-weight="600">局部变量表 Local Variables</text>
+      <text x="68" y="99" fill="#9AA5B1" font-size="11">slot 数组 · index 0 是 this · long/double 占 2 slot</text>
+
+      <rect x="52" y="114" width="286" height="40" rx="6" fill="rgba(111,199,222,.14)" stroke="rgba(111,199,222,.45)"/>
+      <text x="68" y="131" fill="#C4E6F0" font-size="12" font-weight="600">操作数栈 Operand Stack</text>
+      <text x="68" y="147" fill="#9AA5B1" font-size="11">字节码运算的临时工作台 · 深度编译期已定</text>
+
+      <rect x="52" y="162" width="286" height="40" rx="6" fill="rgba(111,199,222,.14)" stroke="rgba(111,199,222,.45)"/>
+      <text x="68" y="179" fill="#C4E6F0" font-size="12" font-weight="600">动态链接 Dynamic Linking</text>
+      <text x="68" y="195" fill="#9AA5B1" font-size="11">符号引用 → 直接引用 · 指向运行时常量池</text>
+
+      <rect x="52" y="210" width="286" height="40" rx="6" fill="rgba(111,199,222,.10)" stroke="rgba(111,199,222,.4)"/>
+      <text x="68" y="227" fill="#C4E6F0" font-size="12" font-weight="600">返回地址 Return Address</text>
+      <text x="68" y="243" fill="#9AA5B1" font-size="11">方法退出后回到调用者下一条指令</text>
+
+      <!-- 右：调用链 -->
+      <rect x="410" y="24" width="280" height="250" rx="10" fill="#161E28" stroke="rgba(255,255,255,.10)"/>
+      <text x="550" y="50" text-anchor="middle" fill="#E7EAEE" font-size="14" font-weight="700">调用链 = 栈帧序列</text>
+      <rect x="440" y="70" width="220" height="34" rx="6" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.12)"/>
+      <text x="456" y="92" fill="#9AA5B1" font-size="12">main()          帧1（底部）</text>
+      <rect x="440" y="112" width="220" height="34" rx="6" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.14)"/>
+      <text x="456" y="134" fill="#9AA5B1" font-size="12">compute()       帧2</text>
+      <rect x="440" y="154" width="220" height="34" rx="6" fill="rgba(111,199,222,.16)" stroke="rgba(111,199,222,.45)"/>
+      <text x="456" y="176" fill="#E7EAEE" font-size="12" font-weight="600">add()          帧3（栈顶·执行中）</text>
+      <text x="550" y="224" text-anchor="middle" fill="#9AA5B1" font-size="11.5">jstack 输出自栈顶向栈底，</text>
+      <text x="550" y="242" text-anchor="middle" fill="#9AA5B1" font-size="11.5">第一行 = 正在执行的帧</text>
+    </svg>
+  </div>
+</section>
+
+<!-- ===== ② Java 堆 ===== -->
+<section class="domain c3" id="d2">
+  <div class="domain-head">
+    <span class="domain-no">02</span>
+    <span class="domain-title">Java 堆</span>
+    <span class="domain-en">JAVA HEAP</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>堆是「对象的大仓库」：新建对象先到 Eden，躲过几次 GC 就晋升老年代</b>。它是 GC 的主战场，也是内存调优最先看的地方。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">Eden / Survivor / Old</div>
+      <div class="s"><span class="path">-XX:SurvivorRatio=8</span></div>
+      <div class="d">新生代 = Eden + S0 + S1（默认 8:1:1）。新对象进 Eden；Minor GC 后存活对象在 S0/S1 间复制，S 区始终保留一个空的。</div>
+    </div>
+    <div class="card">
+      <div class="k">对象晋升</div>
+      <div class="s"><span class="path">-XX:MaxTenuringThreshold=15</span></div>
+      <div class="d">每躲过一次 Minor GC 年龄 +1（对象头 Mark Word 存年龄），达到阈值晋升老年代；大对象（-XX:PretenureSizeThreshold）直接进老年代。</div>
+    </div>
+    <div class="card">
+      <div class="k">堆大小参数</div>
+      <div class="s"><span class="path">-Xms / -Xmx / -Xmn</span></div>
+      <div class="d">初始堆 / 最大堆 / 新生代大小。生产建议 -Xms = -Xmx 避免扩容抖动；-Xmn 控制新生代占比，过大挤压老年代、过小频繁 Minor GC。</div>
+    </div>
+    <div class="card">
+      <div class="k">分配路径</div>
+      <div class="s"><span class="path">HotSpot: gc/shared/collectedHeap.cpp · TLAB</span></div>
+      <div class="d">优先 TLAB（线程本地分配缓冲，无竞争）→ 失败走 CAS 分配 → Eden 放不下则直接尝试老年代。理解这条链，才能理解「为什么有的对象直接进老年代」。</div>
+    </div>
+    <div class="card">
+      <div class="k">堆与收集器</div>
+      <div class="s"><span class="path">-XX:+UseG1GC（JDK 9+ 默认）· -XX:+UseParallelGC</span></div>
+      <div class="d">Parallel 下堆按分代物理连续；G1 起堆切成 Region（约 2048 个），逻辑分代、物理不连续，停顿可预测。堆「长什么样」取决于收集器。</div>
+    </div>
+    <div class="card">
+      <div class="k">堆溢出 OOM</div>
+      <div class="s"><span class="path">java.lang.OutOfMemoryError: Java heap space</span></div>
+      <div class="d">对象分配不下时抛出。排查三件套：-XX:+HeapDumpOnOutOfMemoryError 自动转储 → MAT 分析支配树 → 定位泄漏对象与引用链。</div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h4>专题图：对象在堆里的旅程（分代 + 晋升）</h4>
+    <p class="cap">默认 Parallel/分代模型示意；G1 为 Region 化实现，逻辑分代一致。箭头 = 对象移动路径。</p>
+    <svg viewBox="0 0 720 300" role="img" aria-label="堆分代与对象晋升示意图">
+      <!-- 新生代 -->
+      <rect x="30" y="100" width="420" height="120" rx="10" fill="rgba(110,203,168,.05)" stroke="rgba(110,203,168,.35)"/>
+      <text x="240" y="126" text-anchor="middle" fill="#BFE8D5" font-size="13" font-weight="700">新生代 Young（-Xmn）</text>
+
+      <rect x="52" y="140" width="240" height="56" rx="6" fill="rgba(110,203,168,.12)" stroke="rgba(110,203,168,.45)"/>
+      <text x="172" y="162" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">Eden</text>
+      <text x="172" y="182" text-anchor="middle" fill="#9AA5B1" font-size="11">新对象分配区 · 8/10</text>
+
+      <rect x="304" y="140" width="60" height="56" rx="6" fill="rgba(110,203,168,.18)" stroke="rgba(110,203,168,.55)"/>
+      <text x="334" y="172" text-anchor="middle" fill="#BFE8D5" font-size="12" font-weight="600">S0</text>
+
+      <rect x="376" y="140" width="60" height="56" rx="6" fill="rgba(110,203,168,.18)" stroke="rgba(110,203,168,.55)"/>
+      <text x="406" y="172" text-anchor="middle" fill="#BFE8D5" font-size="12" font-weight="600">S1</text>
+
+      <!-- 老年代 -->
+      <rect x="470" y="100" width="220" height="120" rx="10" fill="rgba(185,140,232,.05)" stroke="rgba(185,140,232,.35)"/>
+      <text x="580" y="126" text-anchor="middle" fill="#D9C4F0" font-size="13" font-weight="700">老年代 Old</text>
+      <text x="580" y="152" text-anchor="middle" fill="#9AA5B1" font-size="11">晋升 / 大对象</text>
+      <text x="580" y="172" text-anchor="middle" fill="#9AA5B1" font-size="11">Full GC 标记整理</text>
+      <text x="580" y="192" text-anchor="middle" fill="#9AA5B1" font-size="11">或 G1 并发回收</text>
+
+      <!-- 流程 -->
+      <g stroke="rgba(255,255,255,.35)" stroke-width="1.4" fill="none">
+        <path d="M 60 84 C 120 84 120 96 160 134" marker-end="url(#arr1)"/>
+        <path d="M 300 168 C 330 168 330 168 300 168" stroke="rgba(255,255,255,0)" />
+        <path d="M 300 180 L 300 196 C 300 214 330 214 360 214 C 385 214 392 214 412 208" marker-end="url(#arr2)"/>
+        <path d="M 430 140 C 450 120 455 112 468 122" marker-end="url(#arr3)"/>
+      </g>
+      <defs>
+        <marker id="arr1" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" fill="rgba(255,255,255,.5)"/>
+        </marker>
+        <marker id="arr2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" fill="rgba(255,255,255,.5)"/>
+        </marker>
+        <marker id="arr3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" fill="rgba(255,255,255,.5)"/>
+        </marker>
+      </defs>
+
+      <text x="62" y="78" fill="#9AA5B1" font-size="11.5">① new 对象 → Eden（优先 TLAB）</text>
+      <text x="330" y="238" fill="#9AA5B1" font-size="11.5">② Minor GC：存活对象 S0/S1 互拷，年龄 +1</text>
+      <text x="470" y="88" fill="#9AA5B1" font-size="11.5">③ 年龄达阈值 / 大对象 → 晋升 Old</text>
+    </svg>
+  </div>
+</section>
+
+<!-- ===== ③ 方法区 ===== -->
+<section class="domain c4" id="d3">
+  <div class="domain-head">
+    <span class="domain-no">03</span>
+    <span class="domain-title">方法区 / 元空间</span>
+    <span class="domain-en">METHOD AREA &amp; METASPACE</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>方法区装「类本身的信息」而不是对象：类元数据、运行时常量池、方法字节码</b>。JDK 8 起它从堆里的永久代搬到本地内存，改名 Metaspace。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">Metaspace 内容</div>
+      <div class="s"><span class="path">java.lang.Class</span> · <span class="path">HotSpot: memory/metaspace/</span></div>
+      <div class="d">类元数据（Klass 结构）、运行时常量池、字段/方法信息、方法字节码、类加载器引用。静态变量 JDK 7 后已移入堆，注意与「类信息」区分。</div>
+    </div>
+    <div class="card">
+      <div class="k">为什么弃永久代</div>
+      <div class="s"><span class="path">JEP 122：PermGen 移除</span></div>
+      <div class="d">永久代大小难估、与堆耦合、回收脆弱；改为本地内存后 Metaspace 默认可无限增长（受物理内存限制），且字符串常量池移入堆。</div>
+    </div>
+    <div class="card">
+      <div class="k">元空间参数</div>
+      <div class="s"><span class="path">-XX:MetaspaceSize · -XX:MaxMetaspaceSize</span></div>
+      <div class="d">MetaspaceSize 是触发 GC 的初始阈值（不是上限）；MaxMetaspaceSize 设硬上限，超限抛 OOM: Metaspace。动态生成类的场景（反射、CGLIB）尤其要关注。</div>
+    </div>
+    <div class="card">
+      <div class="k">运行时常量池</div>
+      <div class="s"><span class="path">HotSpot: oops/constantPool.hpp</span></div>
+      <div class="d">类文件常量池（CONSTANT_Class/Methodref/Utf8…）的运行时版本，存字面量与符号引用；动态链接阶段在此完成「符号 → 直接引用」替换。</div>
+    </div>
+    <div class="card">
+      <div class="k">类加载器与泄漏</div>
+      <div class="s"><span class="path">java.lang.ClassLoader · OOM: Metaspace</span></div>
+      <div class="d">类由加载器 + 类名唯一定位；反复创建加载器（如热部署、反射框架）且无法卸载 → 元空间持续增长，是 Metaspace OOM 的头号原因。</div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h4>演进时间轴：PermGen → Metaspace</h4>
+    <p class="cap">同一份「类信息」的存放位置与治理方式，随 JDK 演进发生了两次关键变化。</p>
+    <div class="tl">
+      <div class="tl-item">
+        <div class="tl-time">JDK 6/7</div>
+        <div class="tl-body">
+          <b>永久代 PermGen</b>
+          <span>方法区位于堆内永久代；-XX:PermSize / -XX:MaxPermSize 控制。字符串常量池也在永久代，是「常量池 OOM」重灾区。</span>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-time">JDK 8</div>
+        <div class="tl-body">
+          <b>元空间 Metaspace 取代永久代</b>
+          <span>JEP 122：方法区移入本地内存，默认无上限（可设 -XX:MaxMetaspaceSize）；字符串常量池与静态变量移入 Java 堆。OOM 类型从 PermGen space 变为 Metaspace。</span>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-time">JDK 9+</div>
+        <div class="tl-body">
+          <b>模块化与治理完善</b>
+          <span>JPMS 模块描述符进入常量池解析；Metaspace 内部按 ClassLoaderData 分块管理、支持卸载统计；G1 默认收集器下的类卸载由并发周期承担。</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ④ 字符串常量池与直接内存 ===== -->
+<section class="domain c6" id="d4">
+  <div class="domain-head">
+    <span class="domain-no">04</span>
+    <span class="domain-title">字符串常量池与直接内存</span>
+    <span class="domain-en">STRING POOL &amp; DIRECT MEMORY</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>字符串常量池是堆里的「字符串去重仓库」，直接内存是堆外的「零拷贝快递通道」</b>。一个管命中、一个管性能，都是高频踩坑点。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">字符串常量池</div>
+      <div class="s"><span class="path">java.lang.String</span> · <span class="path">String.intern()</span></div>
+      <div class="d">JDK 7 起位于堆中，存字面量（""）与 intern() 结果。判断「==」先问：是池里的同一对象吗？频繁 intern 大字符串会撑大堆。</div>
+    </div>
+    <div class="card">
+      <div class="k">编译期与运行期</div>
+      <div class="s"><span class="path">javac 常量折叠 · StringBuilder 拼接</span></div>
+      <div class="d">"a"+"b" 编译期折叠为 "ab" 进池；含变量的拼接走 StringBuilder/indy（JDK 9+ 字符串拼接指令）——解释「为什么字符串拼接别用 +」的底层原因。</div>
+    </div>
+    <div class="card">
+      <div class="k">直接内存</div>
+      <div class="s"><span class="path">java.nio.ByteBuffer.allocateDirect</span></div>
+      <div class="d">堆外内存，读写少一次堆内拷贝，Netty 与 NIO 零拷贝的基础。-XX:MaxDirectMemorySize 限制总量（默认≈-Xmx），Full GC 时回收 DirectByteBuffer。</div>
+    </div>
+    <div class="card">
+      <div class="k">堆外泄漏特征</div>
+      <div class="s"><span class="path">OOM: Direct buffer memory</span></div>
+      <div class="d">堆看起来很小、进程 RSS 却很大，或反复 Full GC 仍涨——多半是直接内存泄漏（DirectByteBuffer 未被 GC 或未调用 cleaner）。用 -XX:MaxDirectMemorySize 收口排查。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑤ 异常与参数 ===== -->
+<section class="domain c7" id="d5">
+  <div class="domain-head">
+    <span class="domain-no">05</span>
+    <span class="domain-title">异常与参数速查</span>
+    <span class="domain-en">EXCEPTIONS &amp; PARAMETERS</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>每个区域都有对应的「装满了」的报错，和对应的控制参数</b>。看到异常先定位区域，再查参数与排查手段——这是排查的第一步。</p>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <colgroup>
+        <col class="th-exception"><col class="th-region"><col class="th-cause"><col class="th-param"><col class="th-fix">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>异常</th>
+          <th>区域</th>
+          <th>触发场景</th>
+          <th>相关参数</th>
+          <th>排查方向</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>StackOverflowError</code></td>
+          <td>虚拟机栈</td>
+          <td>方法递归过深、无限递归，栈深度超限</td>
+          <td><code>-Xss</code></td>
+          <td>jstack 看栈顶方法，查递归/深调用链</td>
+        </tr>
+        <tr>
+          <td><code>OOM: Java heap space</code></td>
+          <td>堆</td>
+          <td>对象分配不下：泄漏或峰值内存超 -Xmx</td>
+          <td><code>-Xms / -Xmx</code></td>
+          <td>HeapDump + MAT 分析支配树、引用链</td>
+        </tr>
+        <tr>
+          <td><code>OOM: Metaspace</code></td>
+          <td>方法区</td>
+          <td>类元数据耗尽：动态生成类、热部署加载器泄漏</td>
+          <td><code>-XX:MetaspaceSize</code><br><code>-XX:MaxMetaspaceSize</code></td>
+          <td>jcmd GC.class_stats 看类占用，查加载器</td>
+        </tr>
+        <tr>
+          <td><code>OOM: Direct buffer memory</code></td>
+          <td>直接内存</td>
+          <td>DirectByteBuffer 堆积、未及时回收</td>
+          <td><code>-XX:MaxDirectMemorySize</code></td>
+          <td>统计 DirectBuffer 数量，查未释放的 NIO 缓存</td>
+        </tr>
+        <tr>
+          <td><code>OOM: GC overhead limit exceeded</code></td>
+          <td>堆</td>
+          <td>GC 回收效率过低（98% 时间回收 &lt;2% 空间）</td>
+          <td><code>-XX:+UseG1GC</code> 等收集器</td>
+          <td>本质是堆太小/泄漏，先转储再调参</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== ⑥ 验证实验 ===== -->
+<section class="domain c2" id="d6">
+  <div class="domain-head">
+    <span class="domain-no">06</span>
+    <span class="domain-title">验证实验：用工具看内存</span>
+    <span class="domain-en">VERIFY WITH TOOLS</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>纸上谈兵不如一行命令</b>。下面的命令可以直接在本地 JDK 21 上跑，把「区域大小」变成真实数字。IDE 终端或命令行均可。</p>
+  <div class="cmd-grid">
+    <div class="cmd">
+      <div class="k"><span class="c">jcmd</span> · 查看 JVM 参数</div>
+      <pre>jcmd &lt;pid&gt; VM.flags
+jcmd &lt;pid&gt; VM.system_properties</pre>
+      <div class="d">确认 -Xmx、MetaspaceSize 等实际生效值（含默认值），是所有调优的第一步。先 <code>jps</code> 拿到 pid。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">jmap</span> · 堆概览与转储</div>
+      <pre>jmap -heap &lt;pid&gt;
+jmap -dump:format=b,file=heap.hprof &lt;pid&gt;</pre>
+      <div class="d">-heap 看新生代/老年代容量与使用率；-dump 做堆转储交给 MAT。生产环境优先用 <code>jcmd GC.heap_dump</code> 替代。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">jstat</span> · GC 与类加载统计</div>
+      <pre>jstat -gc &lt;pid&gt; 1000
+jstat -class &lt;pid&gt;</pre>
+      <div class="d">每秒采样一次 GC 次数与耗时、各代容量（EU/OU）；-class 看加载类数量，辅助判断 Metaspace 压力。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">制造现场</span> · 触发各区域异常</div>
+      <pre>java -Xss160k StackOverflowDemo
+java -Xmx64m OOMDemo
+java -XX:MaxMetaspaceSize=64m MetaDemo</pre>
+      <div class="d">写最小复现类分别触发 StackOverflow / heap OOM / Metaspace OOM，配合 -XX:+HeapDumpOnOutOfMemoryError 留档，走一遍完整排查流程。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">jhsdb</span> · 深入运行时</div>
+      <pre>jhsdb jmap --heap --pid &lt;pid&gt;
+jhsdb jstack --pid &lt;pid&gt;</pre>
+      <div class="d">JDK 9+ 的底层调试工具，能看更细的运行时结构；需要时用，日常 jcmd/jstat 已覆盖多数场景。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">-Xlog</span> · GC 与类加载日志</div>
+      <pre>-Xlog:gc*:file=gc.log
+-Xlog:class+load,class+unload</pre>
+      <div class="d">JDK 9+ 统一日志框架：gc* 记录各代回收与停顿；class+load/unload 记录类加载/卸载，定位「谁在制造类」。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 阅读路径 ===== -->
+<section class="pathway" id="pathway">
+  <div class="wrap" style="padding:0;">
+    <div class="pathway-title">建议阅读路径</div>
+    <p class="pathway-sub">从「画地图」到「看数字」：先建立六大区域的静态认知，再用工具把它变成动态观测。JDK 标准库类可在 IDE 里直接看 src.zip。</p>
+    <div class="steps">
+      <div class="step">
+        <div class="no">1</div>
+        <h5>背下全景图</h5>
+        <p>线程私有：PC/虚拟机栈/本地方法栈；线程共享：堆/方法区；外加直接内存。先分清「谁私有的、谁共享的」。</p>
+      </div>
+      <div class="step">
+        <div class="no">2</div>
+        <h5>搞懂栈帧</h5>
+        <p>局部变量表 → 操作数栈 → 动态链接 → 返回地址；再配合递归写一个 StackOverflowError，体会 -Xss 的作用。</p>
+      </div>
+      <div class="step">
+        <div class="no">3</div>
+        <h5>搞懂堆分代</h5>
+        <p>Eden/S0/S1/Old 与晋升路径 → 写循环 new 对象触发 Minor GC，用 jstat -gc 观察各代使用率变化。</p>
+      </div>
+      <div class="step">
+        <div class="no">4</div>
+        <h5>搞懂方法区</h5>
+        <p>Metaspace 内容与演进 → 反射/CGLIB 动态生成类制造 OOM: Metaspace，用 jcmd GC.class_stats 定位。</p>
+      </div>
+      <div class="step">
+        <div class="no">5</div>
+        <h5>对照源码</h5>
+        <p>IDE 里看 <span class="path">java.lang.Thread</span>、<span class="path">java.nio.ByteBuffer</span>；HotSpot 路径（thread.cpp / frame.cpp / constantPool.hpp）在线浏览对照。</p>
+      </div>
+      <div class="step">
+        <div class="no">6</div>
+        <h5>回到总览</h5>
+        <p>回 <span class="path">OVERVIEW.html</span> 把六大区域放回「类加载 → 数据区 → 对象 → GC → 执行」的完整链路里，看它们如何协作。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>OpenJDK 21.0.2 (HotSpot) · 运行时数据区专题 · 知识源：JDK 自带 src.zip + OpenJDK 主线源码路径</span>
+    <span>HotSpot 路径标注为在线浏览参考 · 未 clone OpenJDK 仓库</span>
+  </div>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  var chips = Array.prototype.slice.call(document.querySelectorAll(".chip"));
+  var nodes = Array.prototype.slice.call(document.querySelectorAll(".graph .node"));
+  var targets = ["overview","d1","d2","d3","d4","d5","d6","pathway"];
+
+  function setActive(id){
+    chips.forEach(function(c){ c.classList.toggle("on", c.getAttribute("data-target") === id); });
+  }
+  function jump(id){
+    var el = document.getElementById(id);
+    if(el){ el.scrollIntoView({behavior:"smooth", block:"start"}); setActive(id); }
+  }
+  chips.forEach(function(c){
+    c.addEventListener("click", function(){ jump(c.getAttribute("data-target")); });
+  });
+  nodes.forEach(function(n){
+    n.addEventListener("click", function(){ jump(n.getAttribute("data-target")); });
+  });
+
+  var sections = targets.map(function(id){ return document.getElementById(id); });
+  if("IntersectionObserver" in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){ setActive(en.target.id); }
+      });
+    }, {rootMargin:"-20% 0px -70% 0px"});
+    sections.forEach(function(s){ if(s) io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>
