@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Redis 分布式锁全解 · Database/redis 学习笔记</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23DC382D'/%3E%3Cpath d='M16 6 26 16 16 26 6 16Z' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;900&display=swap">
+<style>
+  :root{
+    --bg:#0F141B; --bg2:#141B24; --card:#161E28; --card2:#1B2531;
+    --text:#E7EAEE; --text2:#9AA5B1; --text3:#6B7686; --line:rgba(255,255,255,.07);
+    --mono:"Cascadia Code",ui-monospace,Consolas,"SF Mono",Menlo,monospace;
+    --red:#E2594B; --red2:#DC382D;
+    --c1:#6FC7DE; --c2:#E8A87C; --c3:#6ECBA8; --c4:#B98CE8; --c5:#E88AA5; --c6:#E3D27A;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--bg);color:var(--text);
+    font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:rgba(220,56,45,.35);}
+  a{color:inherit;text-decoration:none;}
+  code,.mono,.path{font-family:var(--mono);font-size:.88em;}
+  .path{
+    color:var(--text2);background:rgba(0,0,0,.32);
+    border:1px solid rgba(255,255,255,.05);
+    padding:1px 6px;border-radius:5px;white-space:nowrap;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px;}
+
+  /* ===== 顶栏 ===== */
+  header{
+    position:sticky;top:0;z-index:50;
+    background:rgba(15,20,27,.9);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .nav{display:flex;align-items:center;gap:8px;padding:10px 0;overflow-x:auto;scrollbar-width:none;}
+  .nav::-webkit-scrollbar{display:none;}
+  .brand{font-weight:900;font-size:15px;letter-spacing:.5px;white-space:nowrap;margin-right:10px;}
+  .brand b{color:var(--red2);}
+  .chip{
+    flex:0 0 auto;padding:4px 12px;border-radius:999px;
+    font-size:12.5px;color:var(--text2);border:1px solid var(--line);
+    cursor:pointer;white-space:nowrap;transition:color .15s,border-color .15s,background .15s;
+  }
+  .chip:hover{color:var(--text);border-color:rgba(255,255,255,.22);}
+  .chip.on{color:var(--text);background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.28);}
+  .chip .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;}
+
+  /* ===== Hero ===== */
+  .hero{padding:54px 0 40px;border-bottom:1px solid var(--line);}
+  .hero .kicker{font-size:12.5px;letter-spacing:2px;color:var(--text3);margin-bottom:12px;}
+  .hero h1{font-size:38px;line-height:1.22;font-weight:900;letter-spacing:.5px;}
+  .hero h1 .hl{color:var(--red2);}
+  .hero .sub{margin-top:12px;color:var(--text2);font-size:15px;max-width:700px;}
+  .pillars{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap;}
+  .pillar{
+    border:1px solid var(--line);border-radius:10px;padding:10px 14px;
+    background:var(--card);flex:1 1 190px;min-width:0;
+  }
+  .pillar .n{font-size:12px;color:var(--text2);letter-spacing:1px;margin-bottom:3px;}
+  .pillar .t{font-size:14px;font-weight:700;}
+  .pillar .s{font-size:12px;color:var(--text3);margin-top:2px;}
+
+  /* ===== 通用区块 ===== */
+  section{padding:38px 0 8px;border-bottom:1px solid var(--line);scroll-margin-top:64px;}
+  .sec-head{display:flex;align-items:baseline;gap:12px;margin-bottom:8px;flex-wrap:wrap;}
+  .sec-no{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--red2);}
+  .sec-title{font-size:23px;font-weight:700;letter-spacing:.3px;}
+  .sec-en{font-size:12px;color:var(--text3);letter-spacing:1px;}
+  .sec-desc{color:var(--text2);font-size:13.5px;margin:2px 0 18px;max-width:880px;}
+  .sec-body{display:grid;gap:14px;}
+  .sec-body p{color:var(--text2);max-width:880px;}
+  .sec-body p b,.sec-body p strong{color:var(--text);}
+  .refs{display:flex;flex-wrap:wrap;gap:8px;}
+  .ref{
+    font-family:var(--mono);font-size:11.5px;color:var(--c1);
+    background:rgba(0,0,0,.32);border:1px solid var(--line);border-radius:7px;
+    padding:5px 10px;white-space:nowrap;
+  }
+  .ref .where{color:var(--text2);}
+  .points{list-style:none;display:grid;gap:8px;}
+  .points li{position:relative;padding-left:18px;color:var(--text2);font-size:13.5px;max-width:900px;}
+  .points li::before{content:"";position:absolute;left:2px;top:10px;width:6px;height:6px;border-radius:2px;background:var(--red2);}
+  .points li b{color:var(--text);}
+  .note{
+    font-size:12.5px;color:var(--text3);background:rgba(255,255,255,.03);
+    border:1px solid var(--line);border-left:3px solid var(--red2);
+    border-radius:8px;padding:9px 13px;max-width:900px;
+  }
+  .note b{color:var(--text2);}
+
+  /* ===== 代码块 ===== */
+  .code{
+    background:#0B0F15;border:1px solid var(--line);border-radius:10px;
+    padding:12px 15px;font-family:var(--mono);font-size:12.5px;line-height:1.8;
+    overflow-x:auto;color:#C9D4DE;max-width:900px;
+  }
+  .code .cm{color:#5B6B7B;}
+  .code .ok{color:var(--c3);}
+  .code .bad{color:var(--c5);}
+  .code .kw{color:var(--c1);}
+  .code .num{color:var(--c6);}
+
+  /* ===== 表格 ===== */
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;}
+  table{width:100%;border-collapse:collapse;table-layout:fixed;min-width:660px;}
+  th,td{padding:9px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);}
+  thead th{background:var(--card2);font-size:12.5px;color:var(--text2);font-weight:600;}
+  td{font-size:13px;color:var(--text2);}
+  td b,td .k{color:var(--text);font-weight:600;}
+  tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:rgba(255,255,255,.025);}
+  .mono-cell{font-family:var(--mono);font-size:11.5px;color:var(--c1);}
+  .tag{
+    display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;
+    border:1px solid var(--line);margin-left:4px;vertical-align:1px;
+  }
+  .tag.ok{color:#0F141B;background:var(--c3);border-color:var(--c3);}
+  .tag.bad{color:#0F141B;background:var(--c5);border-color:var(--c5);}
+  .tag.new{color:#0F141B;background:var(--c6);border-color:var(--c6);}
+
+  /* ===== 时间轴 ===== */
+  .timeline{display:grid;grid-template-columns:92px 28px 1fr;gap:0;max-width:900px;}
+  .tl-node{display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;padding:14px 0;min-height:64px;}
+  .tl-node .v{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--c6);}
+  .tl-node .t{font-size:11px;color:var(--text3);margin-top:2px;}
+  .tl-axis{display:flex;justify-content:center;padding:14px 0;min-height:64px;}
+  .tl-axis .dot{width:13px;height:13px;border-radius:50%;background:var(--red2);border:3px solid var(--bg);box-shadow:0 0 0 1px var(--red2);}
+  .tl-content{padding:12px 0 14px 2px;min-height:64px;border-bottom:1px solid var(--line);}
+  .tl-content .h{font-size:14.5px;font-weight:700;color:var(--text);}
+  .tl-content .d{font-size:12.5px;color:var(--text2);margin-top:3px;max-width:720px;}
+  .tl-content .d .mono{font-size:11.5px;}
+  .tl-node:first-child,.tl-axis:first-child,.tl-content:first-child{padding-top:2px;}
+  .tl-node:last-child .tl-axis:last-child,.tl-content:last-child{border-bottom:none;}
+
+  /* ===== 时序对比图 ===== */
+  .scen{display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:960px;}
+  .scen-col{border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--card);}
+  .scen-col .head{font-size:14px;font-weight:800;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+  .scen-col .head .badge{font-size:11px;font-weight:700;padding:1px 9px;border-radius:999px;}
+  .scen-col.badcol .head .badge{background:var(--c5);color:#0F141B;}
+  .scen-col.goodcol .head .badge{background:var(--c3);color:#0F141B;}
+  .seq{list-style:none;display:grid;gap:0;}
+  .seq li{position:relative;padding:6px 0 6px 26px;font-size:12.5px;color:var(--text2);}
+  .seq li::before{
+    content:"";position:absolute;left:8px;top:0;bottom:0;width:2px;background:var(--line);
+  }
+  .seq li::after{
+    content:"";position:absolute;left:4px;top:12px;width:10px;height:10px;border-radius:50%;
+    background:var(--card2);border:2px solid var(--c1);
+  }
+  .seq li:first-child::before{top:12px;}
+  .seq li:last-child::before{bottom:auto;height:12px;}
+  .seq li .who{font-weight:700;color:var(--text);}
+  .seq li .cmd{font-family:var(--mono);font-size:11px;color:var(--c2);display:block;margin-top:1px;}
+  .seq li.hit::after{border-color:var(--red2);background:var(--red2);}
+  .seq li.hit .cmd{color:var(--c5);}
+  .seq li .res{font-family:var(--mono);font-size:10.5px;color:var(--c3);}
+  .seq li .res.bad{color:var(--c5);}
+
+  /* ===== RedLock 流程 ===== */
+  .redlock{display:flex;flex-wrap:wrap;gap:0;align-items:stretch;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 14px;max-width:960px;}
+  .rstep{flex:1 1 150px;min-width:150px;padding:6px 8px;}
+  .rstep .n{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--red2);color:#fff;
+    align-items:center;justify-content:center;font-size:12px;font-weight:700;font-family:var(--mono);
+    vertical-align:middle;}
+  .rstep .t{display:inline-block;vertical-align:middle;font-size:13.5px;font-weight:700;padding-left:6px;}
+  .rstep .f{display:block;font-family:var(--mono);font-size:10.5px;color:var(--text2);margin-top:5px;line-height:1.5;}
+  .rarrow{color:var(--red2);font-weight:700;font-size:18px;align-self:center;padding:0 2px;}
+
+  /* ===== 源码索引 ===== */
+  .idx{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;}
+  .idx-card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:11px 13px;}
+  .idx-card .t{font-size:13.5px;font-weight:700;color:var(--c1);}
+  .idx-card .f{font-family:var(--mono);font-size:11px;color:var(--text2);margin:4px 0;display:block;}
+  .idx-card .d{font-size:12px;color:var(--text3);line-height:1.6;}
+
+  footer{padding:30px 0 44px;color:var(--text3);font-size:12.5px;}
+  footer .wrap{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+
+  #topBtn{
+    position:fixed;right:22px;bottom:22px;width:40px;height:40px;border-radius:10px;
+    background:var(--card2);border:1px solid var(--line);color:var(--text2);
+    font-size:16px;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .2s;
+    font-family:var(--mono);z-index:60;
+  }
+  #topBtn.show{opacity:1;pointer-events:auto;}
+  #topBtn:hover{color:var(--text);border-color:rgba(255,255,255,.25);}
+
+  @media (max-width:760px){
+    .wrap{padding:0 16px;}
+    .hero h1{font-size:28px;}
+    .nav{padding:8px 0;}
+    .chip{min-height:44px;display:inline-flex;align-items:center;padding:6px 13px;}
+    .scen{grid-template-columns:1fr;}
+    .redlock{flex-direction:column;gap:8px;}
+    .rarrow{transform:rotate(90deg);align-self:flex-start;padding-left:10px;}
+    .timeline{grid-template-columns:64px 22px 1fr;}
+    section{padding:28px 0 4px;}
+  }
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto;}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <nav class="nav" id="nav">
+      <span class="brand">Redis <b>分布式锁</b></span>
+      <a class="chip" href="#why"><span class="dot" style="background:var(--red2)"></span>为什么需要</a>
+      <a class="chip" href="#evolve"><span class="dot" style="background:var(--c6)"></span>SETNX 演进</a>
+      <a class="chip" href="#basic"><span class="dot" style="background:var(--c1)"></span>标准实现</a>
+      <a class="chip" href="#unlock"><span class="dot" style="background:var(--c3)"></span>解锁与误删</a>
+      <a class="chip" href="#reliab"><span class="dot" style="background:var(--c5)"></span>可靠性四问</a>
+      <a class="chip" href="#redlock"><span class="dot" style="background:var(--c4)"></span>RedLock</a>
+      <a class="chip" href="#v8"><span class="dot" style="background:var(--c2)"></span>8.x 加持</a>
+      <a class="chip" href="#practice"><span class="dot" style="background:var(--c6)"></span>最佳实践</a>
+      <a class="chip" href="#index"><span class="dot" style="background:var(--text3)"></span>源码索引</a>
+    </nav>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="wrap">
+    <div class="kicker">学习笔记 · 源码 Database/redis · 8.10.1</div>
+    <h1>Redis <span class="hl">分布式锁</span>全解</h1>
+    <p class="sub">分布式锁的本质：让"多个进程/实例"在共享临界区上达成互斥。Redis 用一条原子命令 <span class="mono">SET key value NX PX ttl</span> 就能实现，但"能加锁"与"锁可靠"之间，隔着过期时间、误删、主从切换、时钟跳跃等一连串坑 —— 本页从源码逐层拆解。</p>
+    <div class="pillars">
+      <div class="pillar"><div class="n">加锁积木</div><div class="t">SET NX PX</div><div class="s">t_string.c:87 setGenericCommand</div></div>
+      <div class="pillar"><div class="n">解锁积木</div><div class="t">Lua 校验 + DEL</div><div class="s">eval.c:633 · db.c:1456</div></div>
+      <div class="pillar"><div class="n">8.x 原生 CAS</div><div class="t">SET IFEQ / DEL IFEQ</div><div class="s">t_string.c:117 · db.c:1469 delexCommand</div></div>
+      <div class="pillar"><div class="n">高可靠方案</div><div class="t">RedLock 多数派</div><div class="s">≥3 / 5 节点投票</div></div>
+    </div>
+  </div>
+</div>
+
+<section id="why">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">01</span>
+      <span class="sec-title">为什么需要分布式锁</span>
+      <span class="sec-en">WHY A DISTRIBUTED LOCK</span>
+    </div>
+    <p class="sec-desc">单机内我们用互斥量/信号量解决线程互斥；一旦服务拆成多个进程、多台机器，锁就必须放在"大家都能访问的共享存储"上 —— 数据库、ZooKeeper、Redis 都是候选，Redis 因为内存原子命令成为最轻量的选择。</p>
+    <div class="sec-body">
+      <div class="tbl-wrap">
+        <table>
+          <colgroup><col style="width:20%"><col style="width:26%"><col style="width:54%"></colgroup>
+          <thead><tr><th>方案</th><th>互斥载体</th><th>取舍</th></tr></thead>
+          <tbody>
+            <tr><td class="k">单机锁</td><td>线程 / 进程内</td><td>最快，但只在单机内有效，跨进程/跨机器失效</td></tr>
+            <tr><td class="k">数据库锁</td><td>唯一索引 / SELECT FOR UPDATE</td><td>可靠但慢，DB 是瓶颈；锁释放依赖事务</td></tr>
+            <tr><td class="k">ZooKeeper 锁</td><td>临时顺序节点</td><td>强一致、无超时误删问题，但多一次协调依赖、运维重</td></tr>
+            <tr><td class="k">Redis 锁 <span class="tag ok">轻量</span></td><td>SET NX 原子命令</td><td>微秒级、实现简单；可靠性依赖部署方式（单点/主从/多节点）</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="points">
+        <li><b>核心矛盾</b>：分布式环境下没有"全局唯一线程"，必须借助一个所有参与者都能访问的协调者；锁的正确性 = 协调者的原子性 + 客户端对边界条件的处理。</li>
+        <li><b>Redis 的天然优势</b>：单线程事件循环（ae.c）让"检查 + 写入"天然原子，这是后面所有方案的地基。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="evolve">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">02</span>
+      <span class="sec-title">从 SETNX 到原子 SET：一条命令的演进史</span>
+      <span class="sec-en">HISTORY</span>
+    </div>
+    <p class="sec-desc">分布式锁的"标准姿势"不是一天形成的：<span class="mono">SETNX + EXPIRE</span> 两步走有死锁隐患，2.6.12 起 <span class="mono">SET NX EX</span> 一步原子化，之后 Lua 脚本与 8.x 原生条件命令继续补齐能力。</p>
+    <div class="sec-body">
+      <div class="timeline">
+        <div class="tl-node"><span class="v">1.x</span><span class="t">远古</span></div>
+        <div class="tl-axis"><span class="dot"></span></div>
+        <div class="tl-content"><span class="h">SETNX + EXPIRE 两步走 <span class="tag bad">非原子</span></span><div class="d">先 <span class="mono">SETNX</span> 后 <span class="mono">EXPIRE</span>：若第一步后进程崩溃，key 永不消失 —— 死锁。单线程模型保证每条命令原子，但"两条命令之间"不是。</div></div>
+        <div class="tl-node"><span class="v">2.6.12</span><span class="t">里程碑</span></div>
+        <div class="tl-axis"><span class="dot"></span></div>
+        <div class="tl-content"><span class="h">SET key value NX EX ttl 一步原子 <span class="tag ok">标准</span></span><div class="d"><span class="mono">setGenericCommand</span>（t_string.c:87）在单次命令内完成"不存在才写 + 附带过期"，天然原子 —— 官方文档自此推荐这一姿势。</div></div>
+        <div class="tl-node"><span class="v">3.2</span><span class="t">脚本</span></div>
+        <div class="tl-axis"><span class="dot"></span></div>
+        <div class="tl-content"><span class="h">EVAL Lua：解锁校验原子化</span><div class="d"><span class="mono">evalCommand</span>（eval.c:633）让"比较 value + DEL"变成一条原子脚本，解决误删问题（详见 04）。</div></div>
+        <div class="tl-node"><span class="v">2015</span><span class="t">算法</span></div>
+        <div class="tl-axis"><span class="dot"></span></div>
+        <div class="tl-content"><span class="h">RedLock 算法发布</span><div class="d">antirez 提出多节点多数派加锁，应对单点/主从切换丢锁；随后引发与 Martin Kleppmann 的著名论战（详见 06）。</div></div>
+        <div class="tl-node"><span class="v">8.x</span><span class="t">原生 CAS</span></div>
+        <div class="tl-axis"><span class="dot"></span></div>
+        <div class="tl-content"><span class="h">SET IFEQ / DEL IFEQ 条件命令</span><div class="d"><span class="mono">SET key value IFEQ old</span>（t_string.c:117）与 <span class="mono">DEL key IFEQ value</span>（db.c:1469 delexCommand）把比较-交换原生内置，解锁可不再依赖 Lua。</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="basic">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">03</span>
+      <span class="sec-title">标准实现：加锁</span>
+      <span class="sec-en">LOCK ACQUISITION</span>
+    </div>
+    <p class="sec-desc">官方推荐的加锁姿势就一条命令。value 必须是<b>客户端唯一标识</b>（如 UUID + 线程/实例 ID），用于解锁时证明"锁是我的"。</p>
+    <div class="sec-body">
+      <div class="code">
+<span class="cm"># 加锁：仅当 key 不存在时写入，并设置 30s 过期 —— 全部原子完成</span><br>
+&gt; <span class="kw">SET</span> lock:order:1001 <span class="num">c8f3a1</span> <span class="kw">NX</span> <span class="kw">PX</span> <span class="num">30000</span><br>
+<span class="ok">OK</span>   <span class="cm">← 加锁成功</span><br>
+(nil) <span class="cm">← key 已存在，加锁失败</span>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">SET 入口</span> t_string.c:435 setCommand</span>
+        <span class="ref"><span class="where">原子核心</span> t_string.c:87 setGenericCommand</span>
+        <span class="ref"><span class="where">NX 判断</span> t_string.c:106-113</span>
+        <span class="ref"><span class="where">flags</span> t_string.c:61-72 OBJ_SET_NX / OBJ_PX</span>
+        <span class="ref"><span class="where">命令文档</span> src/commands/set.json</span>
+      </div>
+      <ul class="points">
+        <li><b>原子性来自单线程</b>：<span class="mono">setGenericCommand</span> 里先 <span class="mono">lookupKeyWriteWithLink</span> 查键（t_string.c:104），再判断 NX/XX（t_string.c:106），最后写入 —— 整个流程在同一事件循环轮次内完成，没有其它客户端插进来的缝隙。</li>
+        <li><b>选项解析</b>：<span class="mono">parseExtendedStringArgumentsOrReply</span>（t_string.c:301）解析 <span class="mono">NX/XX/EX/PX/GET/KEEPTTL/EXAT/PXAT</span> 及 8.x 新增 <span class="mono">IFEQ/IFNE/IFDEQ/IFDNE</span>。</li>
+        <li><b>setnxCommand</b>（t_string.c:446）是历史兼容入口：内部就是 <span class="mono">setGenericCommand(OBJ_SET_NX)</span>，但不再推荐单独使用（无过期时间）。</li>
+        <li><b>为什么用随机 value</b>：解锁时要"对值"再删，否则会误删别人的锁（见 04）；随机值让这把锁归属明确。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="unlock">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">04</span>
+      <span class="sec-title">解锁：避免误删是核心难点</span>
+      <span class="sec-en">UNLOCK &amp; THE MISTAKE</span>
+    </div>
+    <p class="sec-desc">直接 <span class="mono">DEL</span> 是错误写法：锁过期后别人拿到了锁，你执行完再 <span class="mono">DEL</span> 就把别人的锁删了。正确做法是"先比对 value，再删除"，且两步必须原子 —— 用 Lua 脚本或 8.x 原生条件命令。</p>
+    <div class="sec-body">
+      <div class="scen">
+        <div class="scen-col badcol">
+          <div class="head"><span class="badge">错误</span>直接 DEL <span style="font-size:11px;color:var(--text3)">非原子 · 会误删</span></div>
+          <ul class="seq">
+            <li><span class="who">A</span> 加锁成功<span class="cmd">SET lock:o1001 uuidA NX PX 30000</span></li>
+            <li><span class="who">A</span> 业务执行超时，锁过期</li>
+            <li><span class="who">B</span> 加锁成功<span class="cmd">SET lock:o1001 uuidB NX PX 30000</span></li>
+            <li class="hit"><span class="who">A</span> 执行完，直接删<span class="cmd">DEL lock:o1001</span><span class="res bad">← 删掉了 B 的锁！</span></li>
+            <li><span class="who">C</span> 趁虚而入，B 的临界区失守<span class="res bad">互斥被破坏</span></li>
+          </ul>
+        </div>
+        <div class="scen-col goodcol">
+          <div class="head"><span class="badge">正确</span>校验 value 再删 <span style="font-size:11px;color:var(--text3)">原子 · 安全</span></div>
+          <ul class="seq">
+            <li><span class="who">A</span> 加锁成功<span class="cmd">SET lock:o1001 uuidA NX PX 30000</span></li>
+            <li><span class="who">A</span> 业务执行超时，锁过期</li>
+            <li><span class="who">B</span> 加锁成功<span class="cmd">SET lock:o1001 uuidB NX PX 30000</span></li>
+            <li><span class="who">A</span> 比对 value ≠ uuidA，不删<span class="cmd">Lua: if get==uuidA then del</span><span class="res">值不匹配，安全跳过</span></li>
+            <li><span class="who">B</span> 持锁正常执行完毕，B 自己解锁<span class="res ok">互斥保持</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="code">
+<span class="cm"># 正确解锁 —— Lua 脚本（3.2+ EVAL），比较与删除原子完成</span><br>
+<span class="kw">EVAL</span> <span class="num">"if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end"</span> <span class="num">1</span> lock:order:1001 c8f3a1
+      </div>
+      <div class="code">
+<span class="cm"># 8.x 原生等价写法 —— DEL 带 IFEQ 条件，无需脚本</span><br>
+&gt; <span class="kw">DEL</span> lock:order:1001 <span class="kw">IFEQ</span> <span class="num">c8f3a1</span>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">EVAL</span> eval.c:633 evalCommand</span>
+        <span class="ref"><span class="where">DEL</span> db.c:1456 delCommand</span>
+        <span class="ref"><span class="where">DELEX 条件删除</span> db.c:1469 delexCommand</span>
+        <span class="ref"><span class="where">SET IFEQ</span> t_string.c:117-151</span>
+      </div>
+      <ul class="points">
+        <li><b>Lua 脚本为何原子</b>：Redis 的 Lua 执行器在脚本运行期间阻塞其他写命令（script.c / script_lua.c），脚本内的 GET + DEL 天然串行，等价于"内置事务"。</li>
+        <li><b>8.x 的 DELEX</b>：<span class="mono">delexCommand</span>（db.c:1469）实现 <span class="mono">DEL key IFEQ value / IFNE value / IFDEQ digest / IFDNE digest</span>（命令文档 src/commands/delex.json），比较在服务器内完成 —— 解锁不必再背一段 Lua。</li>
+        <li><b>同样能用的还有 WATCH/DEL</b>：<span class="mono">WATCH</span> + 读值 + <span class="mono">MULTI</span> 也能做 CAS（multi.c），但三趟往返、体验差，实践中不用它做锁。</li>
+      </ul>
+      <div class="note"><b>一句话记忆</b>：解锁必须"验明正身" —— value 是你写入的唯一标识，删除命令必须带上这个校验，且校验与删除必须原子。</div>
+    </div>
+  </div>
+</section>
+
+<section id="reliab">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">05</span>
+      <span class="sec-title">可靠性四问：一把合格的分布式锁</span>
+      <span class="sec-en">FOUR PROPERTIES</span>
+    </div>
+    <p class="sec-desc">评判锁是否合格，业界通用四个性质：互斥、防死锁、防误删、可容错。前三者由命令保证，第四者依赖部署与续期策略。</p>
+    <div class="sec-body">
+      <div class="tbl-wrap">
+        <table>
+          <colgroup><col style="width:18%"><col style="width:34%"><col style="width:26%"><col style="width:22%"></colgroup>
+          <thead><tr><th>性质</th><th>要解决的问题</th><th>实现手段</th><th>源码 / 配置</th></tr></thead>
+          <tbody>
+            <tr><td class="k">互斥</td><td>同一时刻只有一个客户端持锁</td><td>SET NX（不存在才写）</td><td class="mono-cell">t_string.c:106</td></tr>
+            <tr><td class="k">防死锁</td><td>持有者崩溃后锁能自动释放</td><td>PX 过期时间</td><td class="mono-cell">t_string.c:63 OBJ_PX</td></tr>
+            <tr><td class="k">防误删</td><td>只能释放自己持有的锁</td><td>value 唯一标识 + 原子校验删除（Lua / DEL IFEQ）</td><td class="mono-cell">eval.c:633 · db.c:1469</td></tr>
+            <tr><td class="k">可容错</td><td>单点故障不导致锁失效 / 锁丢失</td><td>主从 + 哨兵 / 集群；极端场景 RedLock</td><td class="mono-cell">replication.c · cluster.c</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="points">
+        <li><b>过期时间怎么定</b>：TTL 必须 &gt; 业务最长执行时间，否则"锁先于业务失效"；但 TTL 太长又会让崩溃后的恢复变慢。通常取业务 P99 耗时的数倍。</li>
+        <li><b>锁过期了还没执行完（续期/看门狗）</b>：客户端定时（如每 TTL/3）执行 <span class="mono">PEXPIRE key ttl</span> 续期，业务结束或进程退出时停止 —— Redisson 的"看门狗"就是这个思路；底层就是 <span class="path">expire.c:726 expireGenericCommand</span>（支持 NX/XX/GT/LT 条件）。</li>
+        <li><b>可重入</b>：同一线程重复加锁需计数。用 hash 存 <span class="mono">{value: 次数}</span>，Lua 里加锁时判断 value 相同则 HINCRBY —— 本质仍是"校验 + 原子操作"。</li>
+        <li><b>公平性</b>：SET NX 不保证先来先得；需要公平锁时用 zset 排队或独立队列，代价是性能。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="redlock">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">06</span>
+      <span class="sec-title">RedLock：多数派算法与争议</span>
+      <span class="sec-en">REDLOCK &amp; THE DEBATE</span>
+    </div>
+    <p class="sec-desc">单节点锁在"主从切换"下会丢锁：主节点写入后未同步即宕机，从节点顶上后锁不存在，两个客户端同时持锁。RedLock 用 N 个独立 Redis 节点投票缓解，但它的正确性边界至今有争议。</p>
+    <div class="sec-body">
+      <div class="redlock">
+        <div class="rstep"><span class="n">1</span><span class="t">取当前时间</span><span class="f">t0 = now()</span></div>
+        <div class="rarrow">→</div>
+        <div class="rstep"><span class="n">2</span><span class="t">依次对 N 节点加锁</span><span class="f">SET k uuid NX PX ttl，单节点超时极短</span></div>
+        <div class="rarrow">→</div>
+        <div class="rstep"><span class="n">3</span><span class="t">统计成功数</span><span class="f">成功 ≥ N/2+1（如 5 节点需 ≥3）</span></div>
+        <div class="rarrow">→</div>
+        <div class="rstep"><span class="n">4</span><span class="t">校验总耗时</span><span class="f">t1 - t0 &lt; TTL，否则释放重试</span></div>
+        <div class="rarrow">→</div>
+        <div class="rstep"><span class="n">5</span><span class="t">持锁执行</span><span class="f">业务时间 &lt;&lt; TTL - 总耗时</span></div>
+      </div>
+      <ul class="points">
+        <li><b>解决的问题</b>：多数节点同时持有才叫持锁，单点宕机/网络分区不影响已形成的多数派。</li>
+        <li><b>Martin Kleppmann 的批评</b>（《How to do distributed locking》）：<b>GC pause</b> 让持有者暂停超 TTL 后锁已过期、它醒来误以为仍持有 → 用 fencing token 才能根治；<b>时钟跳跃</b> 会让 TTL 判定失效；多数派算法在脑裂 + 时钟异常下无法保证严格互斥。</li>
+        <li><b>antirez 的回应</b>（《Is Redlock safe?》）：分布式锁的正确性模型本就建立在"节点正常、时钟单调、网络分区可恢复"的假设上；RedLock 在现实的故障模型下已足够，极端语义（fencing）超出 Redis 定位。</li>
+        <li><b>工程结论</b>：Redis 锁适合"防并发重复操作"（幂等/串行化），不适合"强一致临界区"；后者请配合 fencing token 或换 ZooKeeper/etcd。Redis 官方文档把 RedLock 定位为"可用性优先、强互斥有限"的方案。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="v8">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">07</span>
+      <span class="sec-title">8.x 加持：条件命令原生 CAS</span>
+      <span class="sec-en">8.x NATIVE CAS</span>
+    </div>
+    <p class="sec-desc">8.x 给 SET 与 DEL 都加上了条件比较选项，把"比较-交换"从 Lua 脚本下沉为服务器原语 —— 锁相关代码更短、更易审计。</p>
+    <div class="sec-body">
+      <div class="code">
+<span class="cm"># 条件加锁（SET ... IFEQ）：仅当旧值匹配时才写 —— 可用于"续期时确认仍持有"</span><br>
+&gt; <span class="kw">SET</span> lock:o1001 <span class="num">c8f3a1</span> <span class="kw">PX</span> <span class="num">30000</span> <span class="kw">IFEQ</span> <span class="num">c8f3a1</span><br>
+<span class="ok">OK</span>   <span class="cm">← 值仍是我的，续期成功</span><br><br>
+<span class="cm"># 条件解锁（DEL ... IFEQ）：值匹配才删除，否则返回 0 —— 替代 Lua</span><br>
+&gt; <span class="kw">DEL</span> lock:o1001 <span class="kw">IFEQ</span> <span class="num">c8f3a1</span><br>
+<span class="ok">(integer) 1</span> <span class="cm">← 删掉了自己的锁</span>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">SET IFEQ 实现</span> t_string.c:117-151</span>
+        <span class="ref"><span class="where">DELEX 实现</span> db.c:1469 delexCommand</span>
+        <span class="ref"><span class="where">文档</span> commands/set.json · commands/delex.json</span>
+        <span class="ref"><span class="where">XDELEX</span> t_stream.c:5079（stream 消息条件删除）</span>
+      </div>
+      <ul class="points">
+        <li><b>SET IFEQ/IFNE</b>：按值比较（<span class="mono">sdscmp</span>），IFDEQ/IFDNE 按摘要比较（<span class="mono">stringDigest</span>，t_string.c:135-143），适合大 value 场景。</li>
+        <li><b>DELEX</b>：DEL 的扩展形态，文档声明复杂度 <span class="mono">O(1) for IFEQ/IFNE</span>、<span class="mono">O(N)</span> 摘要比较。</li>
+        <li><b>对锁生态的意义</b>：Redisson 等客户端仍用 Lua 兼容老版本；但新项目可以只用 <span class="mono">SET NX PX</span> + <span class="mono">DEL IFEQ</span> 完成全部锁逻辑，无脚本依赖。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="practice">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">08</span>
+      <span class="sec-title">最佳实践清单</span>
+      <span class="sec-en">BEST PRACTICES</span>
+    </div>
+    <p class="sec-desc">把上面所有结论落成可执行的检查项。</p>
+    <div class="sec-body">
+      <ul class="points">
+        <li><b>加锁</b>：只用 <span class="mono">SET key uuid NX PX ttl</span>；不要用 SETNX+EXPIRE 两步。</li>
+        <li><b>解锁</b>：value 比对 + 原子删除（Lua 或 8.x <span class="mono">DEL IFEQ</span>）；finally 中释放，防止异常路径遗留锁。</li>
+        <li><b>value</b>：全局唯一（UUID + 实例/线程标识），确保"锁是我的"可验证。</li>
+        <li><b>TTL</b>：取业务 P99 耗时的数倍；长任务配续期（看门狗），续期用 <span class="mono">PEXPIRE</span> 或条件 SET。</li>
+        <li><b>容忍度</b>：单机可接受丢失 → 主从 + 哨兵；要求多数派容错 → RedLock；要求严格互斥 + fencing → 换 etcd/ZooKeeper 或自增 token。</li>
+        <li><b>监控</b>：锁等待时长、持锁时长、续期次数、未释放锁残留（<span class="mono">OBJECT ENCODING</span> 看不出，用 SCAN + TTL 巡检）。</li>
+        <li><b>别做的事</b>：不要在锁里做重 IO/长事务；不要把锁 key 当业务 key 复用；不要依赖本地时钟做 TTL 计算（用服务器端相对时间）。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="index">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">09</span>
+      <span class="sec-title">核心源码索引</span>
+      <span class="sec-en">SOURCE INDEX</span>
+    </div>
+    <div class="idx">
+      <div class="idx-card"><span class="t">SET / NX / EX 原子写</span><span class="f">t_string.c:87 setGenericCommand · :435 setCommand · :301 选项解析</span><span class="d">加锁核心：检查 + 写入 + 过期一条命令完成</span></div>
+      <div class="idx-card"><span class="t">SETNX / SETEX 兼容入口</span><span class="f">t_string.c:446 / :451</span><span class="d">历史命令，内部复用 setGenericCommand</span></div>
+      <div class="idx-card"><span class="t">条件 SET（8.x CAS）</span><span class="f">t_string.c:117-151 IFEQ/IFNE/IFDEQ/IFDNE</span><span class="d">按值或摘要比较后才写</span></div>
+      <div class="idx-card"><span class="t">DEL / DELEX</span><span class="f">db.c:1456 delCommand · :1469 delexCommand</span><span class="d">解锁；IFDEQ/IFDNE 支持摘要比较</span></div>
+      <div class="idx-card"><span class="t">EXPIRE 家族</span><span class="f">expire.c:726 expireGenericCommand · :846/:856</span><span class="d">续期 / NX XX GT LT 条件</span></div>
+      <div class="idx-card"><span class="t">Lua 脚本</span><span class="f">eval.c:633 evalCommand · script.c · script_lua.c</span><span class="d">解锁校验原子化的传统方案</span></div>
+      <div class="idx-card"><span class="t">事务（备选）</span><span class="f">multi.c · WATCH / MULTI / EXEC</span><span class="d">CAS 可用但往返多，实战少用</span></div>
+      <div class="idx-card"><span class="t">键查找</span><span class="f">db.c lookupKey* · db.c:1804 getObjectTypeName</span><span class="d">加解锁读取路径</span></div>
+      <div class="idx-card"><span class="t">XDELEX（stream）</span><span class="f">t_stream.c:5079</span><span class="d">消息条件删除，分布式任务队列场景</span></div>
+      <div class="idx-card"><span class="t">命令文档</span><span class="f">src/commands/set.json · delex.json</span><span class="d">SET/DELEX 的语义、复杂度、历史</span></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Redis 8.10.1 分布式锁笔记 · 源码位于 Database/redis</span>
+    <span>函数行号以当前仓库为准</span>
+  </div>
+</footer>
+
+<button id="topBtn" aria-label="回到顶部">↑</button>
+
+<script>
+(function(){
+  "use strict";
+  var chips = Array.prototype.slice.call(document.querySelectorAll('#nav .chip'));
+  var sections = chips.map(function(c){
+    var id = c.getAttribute('href').slice(1);
+    return document.getElementById(id);
+  }).filter(Boolean);
+  var topBtn = document.getElementById('topBtn');
+  var ticking = false;
+
+  function onScroll(){
+    if(!ticking){
+      requestAnimationFrame(function(){
+        var pos = window.scrollY || document.documentElement.scrollTop;
+        var active = 0;
+        for(var i=0;i<sections.length;i++){
+          if(sections[i] && sections[i].offsetTop - 90 <= pos) active = i;
+        }
+        chips.forEach(function(c,i){ c.classList.toggle('on', i===active); });
+        topBtn.classList.toggle('show', pos > 600);
+        ticking = false;
+      });
+      ticking = true;
+    }
+  }
+  window.addEventListener('scroll', onScroll, {passive:true});
+  onScroll();
+
+  topBtn.addEventListener('click', function(){ window.scrollTo({top:0, behavior:'smooth'}); });
+})();
+</script>
+</body>
+</html>
