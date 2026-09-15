@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GraalVM · JVM 生态的高性能多语言运行时</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%236FC7DE'/%3E%3Ctext x='32' y='45' font-size='38' font-weight='700' text-anchor='middle' fill='%230F141B'%3EJ%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;900&display=swap">
+<style>
+  :root{
+    --bg:#0F141B;
+    --bg2:#141B24;
+    --card:#161E28;
+    --card2:#1B2531;
+    --text:#E7EAEE;
+    --text2:#9AA5B1;
+    --line:rgba(255,255,255,.07);
+    --mono:"Cascadia Code",ui-monospace,Consolas,"SF Mono",Menlo,monospace;
+    --c1:#E8A87C; /* Native Image / AOT 橙 */
+    --c2:#7FB4E8; /* Graal 编译器 蓝 */
+    --c3:#6ECBA8; /* 定位 绿 */
+    --c4:#B98CE8; /* Truffle 多语言 紫 */
+    --c5:#6FC7DE; /* 源码路线 青 */
+    --c6:#E88AA5; /* 演进 玫红 */
+    --c7:#E3D27A; /* 实验 黄 */
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    font-size:15px;line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit;text-decoration:none;}
+  code, .path{
+    font-family:var(--mono);
+    font-size:.86em;
+  }
+  .path{
+    color:var(--text2);
+    background:rgba(0,0,0,.32);
+    border:1px solid rgba(255,255,255,.05);
+    padding:1px 6px;
+    border-radius:5px;
+    white-space:nowrap;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px;}
+
+  /* ===== 顶栏导航 ===== */
+  header{
+    position:sticky;top:0;z-index:50;
+    background:rgba(15,20,27,.88);
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .nav{display:flex;align-items:center;gap:8px;padding:10px 0;overflow-x:auto;scrollbar-width:none;}
+  .nav::-webkit-scrollbar{display:none;}
+  .brand{
+    font-weight:900;font-size:15px;letter-spacing:.5px;white-space:nowrap;
+    margin-right:10px;
+  }
+  .brand b{color:#E8A87C;}
+  .chip{
+    flex:0 0 auto;
+    padding:4px 12px;border-radius:999px;
+    font-size:12.5px;color:var(--text2);
+    border:1px solid var(--line);
+    cursor:pointer;white-space:nowrap;
+    transition:color .15s,border-color .15s,background .15s;
+  }
+  .chip:hover{color:var(--text);border-color:rgba(255,255,255,.22);}
+  .chip.on{color:var(--text);background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.28);}
+  .chip .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;}
+
+  /* ===== Hero ===== */
+  .hero{padding:56px 0 44px;}
+  .hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:36px;align-items:center;}
+  .hero .kicker{
+    font-size:12.5px;letter-spacing:2px;color:var(--text2);
+    text-transform:uppercase;margin-bottom:14px;
+  }
+  .hero h1{font-size:38px;line-height:1.22;font-weight:900;letter-spacing:.5px;}
+  .hero h1 .hl{color:#E8A87C;}
+  .hero .sub{margin-top:14px;color:var(--text2);font-size:15px;max-width:540px;}
+  .hero .sub b{color:var(--text);font-weight:600;}
+  .pillars{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap;}
+  .pillar{
+    border:1px solid var(--line);border-radius:10px;padding:10px 14px;
+    background:var(--card);flex:1 1 150px;min-width:0;
+  }
+  .pillar .n{font-size:11px;color:var(--text2);letter-spacing:1px;margin-bottom:3px;}
+  .pillar .t{font-size:13.5px;font-weight:600;}
+  .pillar .f{font-family:var(--mono);font-size:11.5px;color:var(--text2);margin-top:3px;display:block;}
+
+  .graph{position:relative;}
+  .graph svg{width:100%;height:auto;display:block;}
+  .graph .node{cursor:pointer;transition:opacity .15s;}
+  .graph .node:hover{opacity:.72;}
+  .graph text{font-family:"Noto Sans SC",sans-serif;user-select:none;}
+
+  /* ===== 区域区块 ===== */
+  .domain{padding:34px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .domain-head{display:flex;align-items:baseline;gap:12px;margin-bottom:6px;}
+  .domain-no{font-family:var(--mono);font-size:15px;font-weight:700;}
+  .domain-title{font-size:23px;font-weight:700;letter-spacing:.3px;}
+  .domain-en{font-size:12px;color:var(--text2);letter-spacing:1px;}
+  .domain-desc{color:var(--text2);font-size:13.5px;margin:4px 0 18px 40px;max-width:760px;}
+  .domain-desc b{color:var(--text);font-weight:600;}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;}
+  .card{
+    background:var(--card);border:1px solid var(--line);
+    border-radius:10px;padding:14px 16px;
+    display:flex;flex-direction:column;gap:8px;min-width:0;
+    transition:transform .15s,border-color .15s;
+  }
+  .card:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.16);}
+  .card .k{font-size:14.5px;font-weight:600;}
+  .card .d{font-size:12.5px;color:var(--text2);line-height:1.6;}
+  .card .s{font-size:12px;color:var(--text);}
+  .card .s .path{white-space:normal;word-break:break-all;}
+  .c1 .domain-no,.c1 .domain-title{color:var(--c1);}
+  .c2 .domain-no,.c2 .domain-title{color:var(--c2);}
+  .c3 .domain-no,.c3 .domain-title{color:var(--c3);}
+  .c4 .domain-no,.c4 .domain-title{color:var(--c4);}
+  .c5 .domain-no,.c5 .domain-title{color:var(--c5);}
+  .c6 .domain-no,.c6 .domain-title{color:var(--c6);}
+  .c7 .domain-no,.c7 .domain-title{color:var(--c7);}
+  .c1 .card{border-left:3px solid var(--c1);}
+  .c2 .card{border-left:3px solid var(--c2);}
+  .c3 .card{border-left:3px solid var(--c3);}
+  .c4 .card{border-left:3px solid var(--c4);}
+  .c5 .card{border-left:3px solid var(--c5);}
+  .c6 .card{border-left:3px solid var(--c6);}
+  .c7 .card{border-left:3px solid var(--c7);}
+
+  /* ===== 图表容器 ===== */
+  .fig{
+    background:var(--card2);border:1px solid var(--line);border-radius:10px;
+    padding:18px 20px;margin:16px 0 4px;
+  }
+  .fig h4{font-size:14px;font-weight:700;margin-bottom:4px;}
+  .fig .cap{font-size:12px;color:var(--text2);margin-bottom:14px;}
+  .fig svg{width:100%;height:auto;display:block;}
+
+  /* ===== 时间轴 ===== */
+  .tl{display:grid;grid-template-columns:96px 1fr;gap:0 18px;margin-top:6px;}
+  .tl-item{display:contents;}
+  .tl-time{
+    font-family:var(--mono);font-size:12.5px;font-weight:700;color:var(--c6);
+    text-align:right;padding:10px 0;white-space:nowrap;
+  }
+  .tl-body{
+    position:relative;padding:10px 0 10px 18px;border-left:2px solid rgba(232,138,165,.35);
+  }
+  .tl-body::before{
+    content:"";position:absolute;left:-6px;top:16px;
+    width:10px;height:10px;border-radius:50%;
+    background:var(--c6);
+  }
+  .tl-body b{font-size:14px;display:block;margin-bottom:2px;}
+  .tl-body span{font-size:12.5px;color:var(--text2);display:block;}
+
+  /* ===== 对比表 ===== */
+  .tbl-wrap{overflow-x:auto;margin-top:6px;}
+  table.tbl{
+    width:100%;border-collapse:collapse;table-layout:fixed;
+    font-size:13px;background:var(--card2);border-radius:10px;overflow:hidden;
+  }
+  table.tbl th{
+    background:rgba(255,255,255,.06);text-align:left;
+    padding:10px 12px;font-weight:700;font-size:12.5px;letter-spacing:.5px;
+  }
+  table.tbl td{padding:10px 12px;border-top:1px solid var(--line);color:var(--text);vertical-align:top;}
+  table.tbl td .m{color:var(--text2);}
+  table.tbl td code{color:#D9C4F0;font-size:.9em;}
+  .th-dim{width:18%;}
+  .th-jvm{width:28%;}
+  .th-native{width:36%;}
+  .th-note{width:18%;}
+
+  /* ===== 命令卡片 ===== */
+  .cmd-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:6px;}
+  .cmd{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;}
+  .cmd .k{font-size:14px;font-weight:700;margin-bottom:6px;}
+  .cmd .k .c{color:var(--c7);}
+  .cmd pre{
+    font-family:var(--mono);font-size:12px;line-height:1.7;color:#C4E6F0;
+    background:rgba(0,0,0,.35);border:1px solid rgba(111,199,222,.2);
+    border-radius:6px;padding:10px 12px;white-space:pre;overflow-x:auto;margin-bottom:8px;
+  }
+  .cmd .d{font-size:12.5px;color:var(--text2);}
+
+  /* ===== 阅读路径 ===== */
+  .pathway{padding:40px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
+  .pathway-title{font-size:23px;font-weight:700;margin-bottom:6px;}
+  .pathway-sub{color:var(--text2);font-size:13.5px;margin-bottom:20px;}
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;counter-reset:step;}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;position:relative;}
+  .step .no{
+    font-family:var(--mono);font-size:12px;font-weight:700;color:#0F141B;
+    background:var(--text);width:22px;height:22px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;margin-bottom:10px;
+  }
+  .step h5{font-size:14.5px;font-weight:700;margin-bottom:6px;}
+  .step p{font-size:12.5px;color:var(--text2);}
+  .step p .path{white-space:normal;}
+
+  /* ===== 页脚 ===== */
+  footer{border-top:1px solid var(--line);padding:28px 0 40px;color:var(--text2);font-size:12.5px;}
+  footer .wrap{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+
+  /* ===== 响应式 ===== */
+  @media (max-width:860px){
+    .hero{padding:38px 0 30px;}
+    .hero-grid{grid-template-columns:1fr;gap:24px;}
+    .hero h1{font-size:28px;}
+    .domain-desc{margin-left:0;}
+    .card .s .path{white-space:normal;}
+    .tl{grid-template-columns:78px 1fr;}
+    .tl-time{font-size:11.5px;}
+    table.tbl{font-size:12px;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto;}
+    *{transition:none!important;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <div class="brand">JVM <b>GraalVM</b></div>
+    <div class="chip on" data-target="overview"><span class="dot" style="background:#E8A87C"></span>总览</div>
+    <div class="chip" data-target="d1"><span class="dot" style="background:var(--c3)"></span>定位</div>
+    <div class="chip" data-target="d2"><span class="dot" style="background:var(--c2)"></span>Graal 编译器</div>
+    <div class="chip" data-target="d3"><span class="dot" style="background:var(--c1)"></span>Native Image</div>
+    <div class="chip" data-target="d4"><span class="dot" style="background:var(--c4)"></span>Truffle</div>
+    <div class="chip" data-target="d5"><span class="dot" style="background:var(--c6)"></span>演进</div>
+    <div class="chip" data-target="d6"><span class="dot" style="background:var(--c7)"></span>实验</div>
+    <div class="chip" data-target="d7"><span class="dot" style="background:var(--c5)"></span>源码路线</div>
+    <div class="chip" data-target="pathway"><span class="dot" style="background:var(--text2)"></span>阅读路径</div>
+  </div>
+</header>
+
+<!-- ===== Hero ===== -->
+<section class="hero" id="overview">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="kicker">GraalVM · Compiler · AOT · Polyglot</div>
+      <h1>GraalVM<br><span class="hl">JVM 生态的高性能多语言运行时</span></h1>
+      <p class="sub">简单说：<b>GraalVM 是一套「给 JVM 换装升级」的发行版</b>——用 Java 写的编译器替代 C2，支持提前编译成原生可执行文件，还能在同一个进程里跑 JS / Python / Ruby 等多种语言。</p>
+      <div class="pillars">
+        <div class="pillar">
+          <div class="n">编译器</div>
+          <div class="t">Graal JIT</div>
+          <span class="f">Java 写的 JIT · 替换 C2</span>
+        </div>
+        <div class="pillar">
+          <div class="n">AOT</div>
+          <div class="t">Native Image</div>
+          <span class="f">毫秒启动 · 无预热</span>
+        </div>
+        <div class="pillar">
+          <div class="n">多语言</div>
+          <div class="t">Truffle / Polyglot</div>
+          <span class="f">一个进程互调多语言</span>
+        </div>
+      </div>
+    </div>
+    <div class="graph" aria-label="GraalVM 架构全景图">
+      <svg viewBox="0 0 720 440" role="img" aria-hidden="true">
+        <!-- 左：输入 -->
+        <g class="node" data-target="d2">
+          <rect x="20" y="70" width="180" height="180" rx="8" fill="#141B24" stroke="#7FB4E8" stroke-width="1.4"/>
+          <text x="110" y="96" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">Java 字节码</text>
+          <text x="110" y="118" text-anchor="middle" fill="#9AA5B1" font-size="11">.class · 与平台无关</text>
+          <rect x="44" y="138" width="132" height="34" rx="6" fill="rgba(127,180,232,.08)" stroke="rgba(127,180,232,.3)"/>
+          <text x="110" y="159" text-anchor="middle" fill="#C9DDF3" font-size="11">编译器前端</text>
+          <rect x="44" y="182" width="132" height="34" rx="6" fill="rgba(127,180,232,.08)" stroke="rgba(127,180,232,.3)"/>
+          <text x="110" y="203" text-anchor="middle" fill="#C9DDF3" font-size="11">Graal IR 中间表示</text>
+        </g>
+
+        <!-- 中：Graal 编译器 -->
+        <g class="node" data-target="d2">
+          <rect x="250" y="40" width="220" height="300" rx="8" fill="#141B24" stroke="#E8A87C" stroke-width="1.6"/>
+          <text x="360" y="66" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">Graal 编译器</text>
+          <rect x="272" y="84" width="176" height="60" rx="6" fill="rgba(110,203,168,.08)" stroke="rgba(110,203,168,.3)"/>
+          <text x="360" y="106" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">解释执行</text>
+          <text x="360" y="124" text-anchor="middle" fill="#9AA5B1" font-size="10.5">启动即用 · 无编译开销</text>
+          <rect x="272" y="156" width="176" height="60" rx="6" fill="rgba(127,180,232,.08)" stroke="rgba(127,180,232,.35)"/>
+          <text x="360" y="178" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">Graal JIT</text>
+          <text x="360" y="196" text-anchor="middle" fill="#9AA5B1" font-size="10.5">运行时热点编译 · 替换 C2</text>
+          <rect x="272" y="228" width="176" height="60" rx="6" fill="rgba(232,168,124,.10)" stroke="rgba(232,168,124,.4)"/>
+          <text x="360" y="250" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">native-image AOT</text>
+          <text x="360" y="268" text-anchor="middle" fill="#9AA5B1" font-size="10.5">构建时静态编译 · 提前</text>
+          <text x="360" y="320" text-anchor="middle" fill="#9AA5B1" font-size="11">同一条编译流水线</text>
+          <text x="360" y="338" text-anchor="middle" fill="#9AA5B1" font-size="11">JIT 与 AOT 共享</text>
+        </g>
+
+        <!-- 右：产物 -->
+        <g class="node" data-target="d3">
+          <rect x="520" y="40" width="180" height="300" rx="8" fill="#141B24" stroke="#6ECBA8" stroke-width="1.4"/>
+          <text x="610" y="66" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">运行产物</text>
+          <rect x="540" y="84" width="140" height="60" rx="6" fill="rgba(232,138,165,.08)" stroke="rgba(232,138,165,.3)"/>
+          <text x="610" y="106" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">HotSpot JVM</text>
+          <text x="610" y="124" text-anchor="middle" fill="#9AA5B1" font-size="10.5">JIT 通道 · 分代 GC</text>
+          <rect x="540" y="156" width="140" height="60" rx="6" fill="rgba(232,168,124,.10)" stroke="rgba(232,168,124,.4)"/>
+          <text x="610" y="178" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">原生可执行文件</text>
+          <text x="610" y="196" text-anchor="middle" fill="#9AA5B1" font-size="10.5">AOT 通道 · 无 JVM</text>
+          <rect x="540" y="228" width="140" height="60" rx="6" fill="rgba(185,140,232,.10)" stroke="rgba(185,140,232,.35)"/>
+          <text x="610" y="250" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">Truffle 多语言</text>
+          <text x="610" y="268" text-anchor="middle" fill="#9AA5B1" font-size="10.5">JS / Py / Ruby / Wasm</text>
+          <text x="610" y="320" text-anchor="middle" fill="#9AA5B1" font-size="11">GC：HotSpot 自带</text>
+          <text x="610" y="338" text-anchor="middle" fill="#9AA5B1" font-size="11">或 Substrate VM</text>
+        </g>
+
+        <!-- 箭头 -->
+        <defs>
+          <marker id="arr2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="rgba(255,255,255,.3)"/>
+          </marker>
+        </defs>
+        <g stroke="rgba(255,255,255,.3)" stroke-width="1.4" fill="none">
+          <path d="M 200 160 C 222 160 222 130 250 130" marker-end="url(#arr2)"/>
+          <path d="M 470 186 C 496 186 496 114 520 114" marker-end="url(#arr2)"/>
+          <path d="M 470 258 C 496 258 496 186 520 186" marker-end="url(#arr2)"/>
+          <path d="M 470 258 C 496 258 496 258 520 258" marker-end="url(#arr2)"/>
+        </g>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<main class="wrap">
+
+<!-- ===== ① 定位 ===== -->
+<section class="domain c3" id="d1">
+  <div class="domain-head">
+    <span class="domain-no">01</span>
+    <span class="domain-title">GraalVM 是什么</span>
+    <span class="domain-en">WHAT IS GRAALVM</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>GraalVM = OpenJDK（HotSpot 运行时 + 分代 GC）+ Graal 编译器 + Truffle 多语言框架</b>，打包成一个可替换 `java` 的高性能发行版。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">发行版定位</div>
+      <div class="s"><span class="path">基于 OpenJDK · 兼容 java/javac 命令</span></div>
+      <div class="d">它首先是「一个 JDK」：类库、运行时数据区、类加载、GC 都来自 HotSpot。差别在编译器与额外工具链，向下兼容现有 Java 代码。</div>
+    </div>
+    <div class="card">
+      <div class="k">三大件</div>
+      <div class="s"><span class="path">Graal 编译器 · Truffle · Substrate VM</span></div>
+      <div class="d">Graal 编译器（Java 写的 JIT）、Truffle（多语言实现框架）、Substrate VM（AOT 运行时）——三件事对应三种交付形态。</div>
+    </div>
+    <div class="card">
+      <div class="k">发行版家族</div>
+      <div class="s"><span class="path">CE / EE / Mandrel</span></div>
+      <div class="d">CE 社区版免费开源；EE 企业版多 AArch64 优化与编译器特性；Mandrel 是 Red Hat 面向 Quarkus 的 Native Image 发行版。</div>
+    </div>
+    <div class="card">
+      <div class="k">与 HotSpot 的关系</div>
+      <div class="s"><span class="path">换编译器，不换运行时</span></div>
+      <div class="d">JVM 模式 = HotSpot + Graal 编译器替换 C2；GC（G1/ZGC）与执行引擎其余部分仍是 HotSpot 的——执行引擎专题的 JIT 管道在此升级。</div>
+    </div>
+    <div class="card">
+      <div class="k">版本节奏</div>
+      <div class="s"><span class="path">跟随 OpenJDK LTS · 如 for JDK 21 / 25</span></div>
+      <div class="d">GraalVM 随 OpenJDK 的 LTS 版本出对应发行版（GraalVM for JDK 25 等）；主线代码仍开源在 github.com/oracle/graal。</div>
+    </div>
+    <div class="card">
+      <div class="k">解决什么痛点</div>
+      <div class="s"><span class="path">启动慢 · 内存高 · 预热期</span></div>
+      <div class="d">Serverless/微服务/CLI 工具/容器镜像：JVM 模式常因启动与常驻内存吃亏，Native Image 正是为这些场景而生。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ② Graal 编译器 ===== -->
+<section class="domain c2" id="d2">
+  <div class="domain-head">
+    <span class="domain-no">02</span>
+    <span class="domain-title">Graal 编译器</span>
+    <span class="domain-en">THE GRAAL COMPILER</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>Graal 是一个用 Java 写的高级 JIT 编译器</b>——同样的字节码，它能做比 C2 更深、更易扩展的优化，还能编译自己（自举）。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">为什么用 Java 写编译器</div>
+      <div class="s"><span class="path">compiler/ · 可读性 &amp; 可扩展性</span></div>
+      <div class="d">C2 是 C++ 写的老牌编译器，改动风险高；Graal 用 Java 写，优化 pass 是普通方法调用，能借 IDE 调试、能加新优化而不动 C2。</div>
+    </div>
+    <div class="card">
+      <div class="k">部分逃逸分析 PEA</div>
+      <div class="s"><span class="path">比 C2 更强的标量替换</span></div>
+      <div class="d">对象若只有部分字段逃逸，也能拆开优化——条件分支里才逃逸的对象，未逃逸路径照样标量替换，是 Graal 的招牌优化之一。</div>
+    </div>
+    <div class="card">
+      <div class="k">推测优化与逆优化</div>
+      <div class="s"><span class="path">Speculation · Deoptimization</span></div>
+      <div class="d">按「最常见的假设」激进优化（如类型未变），运行时假设被打破就逆优化回解释器重来——用栈上替换（OSR）衔接，保证正确性。</div>
+    </div>
+    <div class="card">
+      <div class="k">自举</div>
+      <div class="s"><span class="path">用 Graal 编译 Graal</span></div>
+      <div class="d">Graal 编译器自身跑在 Graal 编译的机器码上（自举），形成正向循环：编译器越优化，编译自己的速度越快。</div>
+    </div>
+    <div class="card">
+      <div class="k">进入 OpenJDK 主线</div>
+      <div class="s"><span class="path">JDK 16 起 jdk.internal.vm.compiler</span></div>
+      <div class="d">Graal 编译器已作为独立模块并入 OpenJDK，任何 JDK 都能用它实验性替代 C2——与「GraalVM 发行版」解耦。</div>
+    </div>
+    <div class="card">
+      <div class="k">观测方式</div>
+      <div class="s"><span class="path">-XX:+UnlockExperimentalVMOptions -XX:Compiler=graal</span></div>
+      <div class="d">普通 JDK 21 上即可开启 Graal JIT 实验开关；GraalVM 发行版默认使用。配合 -XX:+PrintCompilation 看编译事件。</div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h4>专题图：JIT 与 AOT——同一条流水线的两个出口</h4>
+    <p class="cap">左侧 JIT：运行中按热点逐层编译，可动态窥探（profiling）后深度优化；右侧 AOT：构建时一次性完成静态分析与编译，运行时不再有编译与预热。</p>
+    <svg viewBox="0 0 720 280" role="img" aria-label="JIT 与 AOT 对比图">
+      <!-- 左：JIT -->
+      <rect x="20" y="40" width="330" height="200" rx="8" fill="#141B24" stroke="rgba(127,180,232,.5)" stroke-width="1.4"/>
+      <text x="185" y="66" text-anchor="middle" fill="#7FB4E8" font-size="13" font-weight="600">JIT · 运行时编译（Graal JIT）</text>
+      <rect x="40" y="84" width="110" height="40" rx="6" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.18)"/>
+      <text x="95" y="102" text-anchor="middle" fill="#E7EAEE" font-size="11.5">字节码</text>
+      <text x="95" y="118" text-anchor="middle" fill="#9AA5B1" font-size="10">热点触发</text>
+      <rect x="170" y="84" width="110" height="40" rx="6" fill="rgba(127,180,232,.08)" stroke="rgba(127,180,232,.35)"/>
+      <text x="225" y="102" text-anchor="middle" fill="#E7EAEE" font-size="11.5">Graal 编译</text>
+      <text x="225" y="118" text-anchor="middle" fill="#9AA5B1" font-size="10">带运行时 profile</text>
+      <rect x="40" y="150" width="110" height="40" rx="6" fill="rgba(110,203,168,.10)" stroke="rgba(110,203,168,.4)"/>
+      <text x="95" y="168" text-anchor="middle" fill="#E7EAEE" font-size="11.5">机器码</text>
+      <text x="95" y="184" text-anchor="middle" fill="#9AA5B1" font-size="10">推断可逆优化</text>
+      <rect x="170" y="150" width="110" height="40" rx="6" fill="rgba(232,138,165,.10)" stroke="rgba(232,138,165,.4)"/>
+      <text x="225" y="168" text-anchor="middle" fill="#E7EAEE" font-size="11.5">逆优化</text>
+      <text x="225" y="184" text-anchor="middle" fill="#9AA5B1" font-size="10">假设破裂回退</text>
+      <g stroke="rgba(255,255,255,.35)" stroke-width="1.4" fill="none">
+        <path d="M 150 104 L 168 104" marker-end="url(#arr2)"/>
+        <path d="M 225 124 L 225 148" marker-end="url(#arr2)"/>
+        <path d="M 150 170 L 168 170" marker-end="url(#arr2)"/>
+      </g>
+
+      <!-- 右：AOT -->
+      <rect x="370" y="40" width="330" height="200" rx="8" fill="#141B24" stroke="rgba(232,168,124,.5)" stroke-width="1.4"/>
+      <text x="535" y="66" text-anchor="middle" fill="#E8A87C" font-size="13" font-weight="600">AOT · 构建时编译（Native Image）</text>
+      <rect x="390" y="84" width="110" height="40" rx="6" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.18)"/>
+      <text x="445" y="102" text-anchor="middle" fill="#E7EAEE" font-size="11.5">字节码</text>
+      <text x="445" y="118" text-anchor="middle" fill="#9AA5B1" font-size="10">构建期输入</text>
+      <rect x="520" y="84" width="110" height="40" rx="6" fill="rgba(232,168,124,.10)" stroke="rgba(232,168,124,.4)"/>
+      <text x="575" y="102" text-anchor="middle" fill="#E7EAEE" font-size="11.5">封闭世界分析</text>
+      <text x="575" y="118" text-anchor="middle" fill="#9AA5B1" font-size="10">静态可达性</text>
+      <rect x="390" y="150" width="240" height="40" rx="6" fill="rgba(232,168,124,.14)" stroke="rgba(232,168,124,.5)"/>
+      <text x="510" y="168" text-anchor="middle" fill="#F5D5BC" font-size="11.5">原生可执行文件</text>
+      <text x="510" y="184" text-anchor="middle" fill="#9AA5B1" font-size="10">运行期零编译零预热</text>
+      <g stroke="rgba(255,255,255,.35)" stroke-width="1.4" fill="none">
+        <path d="M 500 104 L 518 104" marker-end="url(#arr2)"/>
+        <path d="M 575 124 L 575 148" marker-end="url(#arr2)"/>
+      </g>
+    </svg>
+  </div>
+</section>
+
+<!-- ===== ③ Native Image ===== -->
+<section class="domain c1" id="d3">
+  <div class="domain-head">
+    <span class="domain-no">03</span>
+    <span class="domain-title">Native Image 与 AOT</span>
+    <span class="domain-en">NATIVE IMAGE &amp; AOT</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>`native-image` 在构建时用「封闭世界分析」把应用整体编译成原生可执行文件</b>——没有 JVM、没有预热，换来毫秒级启动与极小内存，代价是放弃运行时动态性。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">构建流程</div>
+      <div class="s"><span class="path">native-image 命令 · 构建期静态分析</span></div>
+      <div class="d">分析可达代码 → 编译到机器码 → 打包成可执行文件（含自带的简化运行时 Substrate VM）。构建慢，运行快。</div>
+    </div>
+    <div class="card">
+      <div class="k">封闭世界假设</div>
+      <div class="s"><span class="path">Closed World · 禁止动态加载类</span></div>
+      <div class="d">Class.forName、动态代理、反射调用都必须「在构建期就可见」。凡是运行期才决定的类，AOT 根本不知道它存在。</div>
+    </div>
+    <div class="card">
+      <div class="k">反射与元数据配置</div>
+      <div class="s"><span class="path">reflect-config.json · reachability-metadata</span></div>
+      <div class="d">反射、代理、资源、JNI 都要在构建期通过 JSON 配置「预先声明」；GraalVM 提供 agent（-agentlib:native-image-agent）自动收集。</div>
+    </div>
+    <div class="card">
+      <div class="k">Substrate VM</div>
+      <div class="s"><span class="path">substratevm/ · 为 AOT 写的运行时</span></div>
+      <div class="d">一套独立的小型运行时：自带 GC（分代/Shenandoah 式）、线程与异常机制，不含 JIT。这就是「没有 JVM 也能跑」的秘密。</div>
+    </div>
+    <div class="card">
+      <div class="k">典型场景</div>
+      <div class="s"><span class="path">Serverless · CLI · 微服务 · 容器</span></div>
+      <div class="d">启动 50ms 级、镜像几十 MB、常驻内存低——Quarkus/Spring Native/Helidon 都围绕它做「云原生 Java」。</div>
+    </div>
+    <div class="card">
+      <div class="k">不适合的场景</div>
+      <div class="s"><span class="path">重度反射框架 · 动态类 · 长生命周期热路径</span></div>
+      <div class="d">Spring 全注解反射要大量配置；运行几小时的大服务，JIT 的峰值吞吐通常仍高于 AOT——它换掉的正是 JVM 的「自适应」。</div>
+    </div>
+  </div>
+
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <colgroup>
+        <col class="th-dim"><col class="th-jvm"><col class="th-native"><col class="th-note">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>维度</th>
+          <th>JVM 模式（HotSpot + Graal JIT）</th>
+          <th>Native Image（AOT）</th>
+          <th>一句话结论</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>启动时间</td>
+          <td>秒级（类加载 + JIT 预热）</td>
+          <td>毫秒级（直接执行机器码）</td>
+          <td>AOT 快 1~2 个数量级</td>
+        </tr>
+        <tr>
+          <td>常驻内存</td>
+          <td>JVM 自身开销 + 元空间</td>
+          <td>仅应用数据，无 JVM 层</td>
+          <td>AOT 显著更低</td>
+        </tr>
+        <tr>
+          <td>峰值吞吐</td>
+          <td>JIT 持续自适应优化</td>
+          <td>静态编译，无运行期优化</td>
+          <td>长跑大负载 JVM 更优</td>
+        </tr>
+        <tr>
+          <td>反射 / 动态代理</td>
+          <td>原生支持</td>
+          <td>需构建期 JSON 配置</td>
+          <td>JVM 省心</td>
+        </tr>
+        <tr>
+          <td>动态类加载</td>
+          <td>支持（Class.forName 等）</td>
+          <td>不支持（封闭世界）</td>
+          <td>AOT 硬约束</td>
+        </tr>
+        <tr>
+          <td>GC 选择</td>
+          <td>G1 / ZGC 等全家桶</td>
+          <td>Substrate VM 自带（分代等）</td>
+          <td>JVM 选择更多</td>
+        </tr>
+        <tr>
+          <td>构建产物</td>
+          <td>平台无关 .class + JVM</td>
+          <td>平台相关可执行文件</td>
+          <td>AOT 要按平台构建</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="fig">
+    <h4>专题图：Native Image 构建流水线（build-time vs run-time）</h4>
+    <p class="cap">橙色 = 构建期，绿色 = 运行期。静态分析决定了「运行期不再有任何发现」；agent 收集的反射配置是连通两者的关键输入。</p>
+    <svg viewBox="0 0 720 300" role="img" aria-label="Native Image 构建流水线">
+      <rect x="20" y="40" width="680" height="110" rx="8" fill="rgba(232,168,124,.05)" stroke="rgba(232,168,124,.4)" stroke-dasharray="6 4"/>
+      <text x="36" y="62" fill="#E8A87C" font-size="12" font-weight="700">BUILD TIME · 构建期（native-image）</text>
+      <rect x="36" y="78" width="120" height="50" rx="6" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.18)"/>
+      <text x="96" y="100" text-anchor="middle" fill="#E7EAEE" font-size="11.5">字节码 + 入口类</text>
+      <text x="96" y="116" text-anchor="middle" fill="#9AA5B1" font-size="10">main / args</text>
+      <rect x="186" y="78" width="150" height="50" rx="6" fill="rgba(232,168,124,.10)" stroke="rgba(232,168,124,.4)"/>
+      <text x="261" y="100" text-anchor="middle" fill="#F5D5BC" font-size="11.5">封闭世界静态分析</text>
+      <text x="261" y="116" text-anchor="middle" fill="#9AA5B1" font-size="10">可达性 · 图构建</text>
+      <rect x="366" y="78" width="120" height="50" rx="6" fill="rgba(185,140,232,.10)" stroke="rgba(185,140,232,.4)"/>
+      <text x="426" y="100" text-anchor="middle" fill="#E7EAEE" font-size="11.5">反射/代理配置</text>
+      <text x="426" y="116" text-anchor="middle" fill="#9AA5B1" font-size="10">agent 收集 JSON</text>
+      <rect x="516" y="78" width="170" height="50" rx="6" fill="rgba(232,168,124,.14)" stroke="rgba(232,168,124,.5)"/>
+      <text x="601" y="100" text-anchor="middle" fill="#F5D5BC" font-size="11.5">Graal AOT 编译</text>
+      <text x="601" y="116" text-anchor="middle" fill="#9AA5B1" font-size="10">SVM 运行时一并打包</text>
+
+      <rect x="20" y="190" width="680" height="90" rx="8" fill="rgba(110,203,168,.05)" stroke="rgba(110,203,168,.4)" stroke-dasharray="6 4"/>
+      <text x="36" y="212" fill="#6ECBA8" font-size="12" font-weight="700">RUN TIME · 运行期（可执行文件）</text>
+      <rect x="36" y="226" width="290" height="42" rx="6" fill="rgba(110,203,168,.10)" stroke="rgba(110,203,168,.45)"/>
+      <text x="181" y="245" text-anchor="middle" fill="#E7EAEE" font-size="11.5">直接执行机器码 · 零编译零预热</text>
+      <text x="181" y="261" text-anchor="middle" fill="#9AA5B1" font-size="10">Substrate VM 运行时 + 自带 GC</text>
+      <rect x="356" y="226" width="330" height="42" rx="6" fill="rgba(232,138,165,.10)" stroke="rgba(232,138,165,.4)"/>
+      <text x="521" y="245" text-anchor="middle" fill="#F0C4D4" font-size="11.5">运行期动态行为受限</text>
+      <text x="521" y="261" text-anchor="middle" fill="#9AA5B1" font-size="10">无动态类加载 · 反射仅限已配置</text>
+
+      <g stroke="rgba(255,255,255,.4)" stroke-width="1.5" fill="none">
+        <path d="M 156 103 L 184 103" marker-end="url(#arr2)"/>
+        <path d="M 336 103 L 364 103" marker-end="url(#arr2)"/>
+        <path d="M 486 103 L 514 103" marker-end="url(#arr2)"/>
+        <path d="M 601 128 L 601 224" marker-end="url(#arr2)"/>
+      </g>
+    </svg>
+  </div>
+</section>
+
+<!-- ===== ④ Truffle 多语言 ===== -->
+<section class="domain c4" id="d4">
+  <div class="domain-head">
+    <span class="domain-no">04</span>
+    <span class="domain-title">Truffle 与多语言</span>
+    <span class="domain-en">TRUFFLE &amp; POLYGLOT</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>Truffle 是「用框架写语言解释器」的框架，所有语言编译到同一套中间表示，共享同一个 Graal JIT</b>——于是 JS 和 Java 能在同一进程里互相调用。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">语言实现框架</div>
+      <div class="s"><span class="path">truffle/ · 自顶向下解释器</span></div>
+      <div class="d">每种语言只需写一个 AST 解释器（自顶向下），Truffle 自动完成 specialization 与「部分求值」，再交给 Graal 编译成机器码。</div>
+    </div>
+    <div class="card">
+      <div class="k">Polyglot API</div>
+      <div class="s"><span class="path">org.graalvm.polyglot · 一个进程互调</span></div>
+      <div class="d">Java 里 new Context().eval("js", ...) 跑 JS，JS 里再调 Python 函数——共享堆与调用栈，无进程间序列化开销。</div>
+    </div>
+    <div class="card">
+      <div class="k">语言全家桶</div>
+      <div class="s"><span class="path">JS/Node · Python · Ruby · R · Wasm · LLVM</span></div>
+      <div class="d">GraalJS、GraalPython、TruffleRuby 等皆基于 Truffle；Sulong 跑 LLVM bitcode（C/C++/Rust），GraalWasm 跑 WebAssembly。</div>
+    </div>
+    <div class="card">
+      <div class="k">与 JVM 的关系</div>
+      <div class="s"><span class="path">多语言代码共享 Graal 编译通道</span></div>
+      <div class="d">各语言 AST 最终都进入 Graal IR——与 Java 字节码同一条优化/编译流水线，这是「多语言高性能」的技术底座。</div>
+    </div>
+    <div class="card">
+      <div class="k">Truffle 的代价</div>
+      <div class="s"><span class="path">解释器预热 · 语言生态完整度</span></div>
+      <div class="d">多语言进程启动更重、各语言库生态不如原生实现完整；适合「JVM 为主、少量脚本穿插」的场景，而非全量替换 Node/Python。</div>
+    </div>
+    <div class="card">
+      <div class="k">GraalPy 与 Python 生态</div>
+      <div class="s"><span class="path">官方发行版内置 · 与 NumPy 兼容层</span></div>
+      <div class="d">GraalPy 追求与 CPython 生态兼容（科学计算栈），并可在 JVM 内互调 Java——数据科学里 Java 调 Python 库的桥。</div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h4>专题图：Polyglot 互调——所有语言通向同一条编译流水线</h4>
+    <p class="cap">各语言解释器（AST）通过 Truffle 框架统一进入 Graal IR，再共享 Graal JIT 编译；Polyglot Context 是进程内互调的入口。</p>
+    <svg viewBox="0 0 720 300" role="img" aria-label="Truffle 多语言互调图">
+      <!-- 语言层 -->
+      <text x="60" y="40" fill="#9AA5B1" font-size="11.5">语言层 · 各自写 AST 解释器</text>
+      <rect x="20" y="52" width="100" height="56" rx="6" fill="rgba(127,180,232,.08)" stroke="rgba(127,180,232,.35)"/>
+      <text x="70" y="76" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">Java</text>
+      <text x="70" y="94" text-anchor="middle" fill="#9AA5B1" font-size="10">字节码 + JVMCI</text>
+      <rect x="132" y="52" width="100" height="56" rx="6" fill="rgba(227,210,122,.08)" stroke="rgba(227,210,122,.35)"/>
+      <text x="182" y="76" text-anchor="middle" fill="#F0E6B8" font-size="12" font-weight="600">JavaScript</text>
+      <text x="182" y="94" text-anchor="middle" fill="#9AA5B1" font-size="10">GraalJS</text>
+      <rect x="244" y="52" width="100" height="56" rx="6" fill="rgba(110,203,168,.08)" stroke="rgba(110,203,168,.35)"/>
+      <text x="294" y="76" text-anchor="middle" fill="#BFE8D5" font-size="12" font-weight="600">Python</text>
+      <text x="294" y="94" text-anchor="middle" fill="#9AA5B1" font-size="10">GraalPy</text>
+      <rect x="356" y="52" width="100" height="56" rx="6" fill="rgba(232,138,165,.08)" stroke="rgba(232,138,165,.35)"/>
+      <text x="406" y="76" text-anchor="middle" fill="#F0C4D4" font-size="12" font-weight="600">Ruby / R</text>
+      <text x="406" y="94" text-anchor="middle" fill="#9AA5B1" font-size="10">TruffleRuby</text>
+      <rect x="468" y="52" width="100" height="56" rx="6" fill="rgba(185,140,232,.08)" stroke="rgba(185,140,232,.35)"/>
+      <text x="518" y="76" text-anchor="middle" fill="#DCC9F2" font-size="12" font-weight="600">Wasm / LLVM</text>
+      <text x="518" y="94" text-anchor="middle" fill="#9AA5B1" font-size="10">GraalWasm · Sulong</text>
+      <rect x="580" y="52" width="120" height="56" rx="6" fill="rgba(111,199,222,.10)" stroke="rgba(111,199,222,.45)"/>
+      <text x="640" y="70" text-anchor="middle" fill="#BFE3EE" font-size="11.5" font-weight="600">Polyglot Context</text>
+      <text x="640" y="88" text-anchor="middle" fill="#9AA5B1" font-size="10">进程内互调入口</text>
+      <text x="640" y="102" text-anchor="middle" fill="#9AA5B1" font-size="9.5">eval / 传值 / 回调</text>
+
+      <!-- 中间层 -->
+      <rect x="60" y="140" width="620" height="44" rx="6" fill="rgba(185,140,232,.06)" stroke="rgba(185,140,232,.4)"/>
+      <text x="370" y="160" text-anchor="middle" fill="#DCC9F2" font-size="12" font-weight="600">Truffle 框架 · 部分求值 → Graal IR</text>
+      <text x="370" y="176" text-anchor="middle" fill="#9AA5B1" font-size="10.5">解释器自动 specialization · 语言无关中间表示</text>
+
+      <!-- 编译层 -->
+      <rect x="60" y="216" width="620" height="44" rx="6" fill="rgba(232,168,124,.10)" stroke="rgba(232,168,124,.45)"/>
+      <text x="370" y="236" text-anchor="middle" fill="#F5D5BC" font-size="12" font-weight="600">Graal JIT · 共享编译流水线</text>
+      <text x="370" y="252" text-anchor="middle" fill="#9AA5B1" font-size="10.5">逃逸分析 · 推测优化 · 向量化 · 机器码</text>
+
+      <g stroke="rgba(255,255,255,.4)" stroke-width="1.4" fill="none">
+        <path d="M 70 108 L 70 138" marker-end="url(#arr2)"/>
+        <path d="M 182 108 L 182 138" marker-end="url(#arr2)"/>
+        <path d="M 294 108 L 294 138" marker-end="url(#arr2)"/>
+        <path d="M 406 108 L 406 138" marker-end="url(#arr2)"/>
+        <path d="M 518 108 L 518 138" marker-end="url(#arr2)"/>
+        <path d="M 370 184 L 370 214" marker-end="url(#arr2)"/>
+      </g>
+    </svg>
+  </div>
+</section>
+
+<!-- ===== ⑤ 演进 ===== -->
+<section class="domain c6" id="d5">
+  <div class="domain-head">
+    <span class="domain-no">05</span>
+    <span class="domain-title">演进时间轴</span>
+    <span class="domain-en">TIMELINE</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>从 Oracle Labs 的科研项目，到 OpenJDK 官方模块</b>——GraalVM 用了十几年走完「论文 → 发行版 → 标准」的路线。</p>
+  <div class="fig" style="margin-top:0;">
+    <h4>GraalVM 关键节点</h4>
+    <p class="cap">注意 2020 年前后两条线的交汇：Native Image 转正 + Graal 编译器并入 OpenJDK 主线，此后「GraalVM 发行版」与「任何 JDK 可用 Graal JIT」并行。</p>
+    <div class="tl">
+      <div class="tl-item">
+        <div class="tl-time">2011–2017</div>
+        <div class="tl-body">
+          <b>科研项目期</b>
+          <span>Oracle Labs 的 Graal 编译器（Java 写的 JIT）与 Truffle 语言框架论文相继发表；Maxine VM 与 Substrate VM 提供 AOT 验证平台。</span>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-time">2018</div>
+        <div class="tl-body">
+          <b>GraalVM 1.0 GA</b>
+          <span>首个正式发行版：基于 JDK 8/11，主打「多语言 + 高性能」，提供 CE/EE 两个版本与 gu 组件管理器。</span>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-time">2020</div>
+        <div class="tl-body">
+          <b>Native Image 转正 + 并入 OpenJDK</b>
+          <span>20.3 起 Native Image 正式 GA；同年 Graal 编译器作为 jdk.internal.vm.compiler 并入 OpenJDK 主线，任何 JDK 可实验启用。</span>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-time">2021–2023</div>
+        <div class="tl-body">
+          <b>云原生 Java 落地</b>
+          <span>Quarkus 默认 Mandrel、Spring Boot 3 原生支持、Micronaut/Helidon 跟进；GraalVM for JDK 17/21 按 LTS 节奏发布。</span>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-time">2025</div>
+        <div class="tl-body">
+          <b>GraalVM for JDK 25</b>
+          <span>跟随 JDK 25 LTS：Native Image 与分代 ZGC 协作、构建性能持续优化、GraalPy 生态扩展；gu 已退役，组件独立下载。</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑥ 动手实验 ===== -->
+<section class="domain c7" id="d6">
+  <div class="domain-head">
+    <span class="domain-no">06</span>
+    <span class="domain-title">动手实验</span>
+    <span class="domain-en">VERIFY WITH TOOLS</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>同一个 HelloWorld，分别用 `java` 与原生可执行文件跑，用 `time` 量启动差距</b>——再把 JIT 换成 Graal 对比编译日志，三件事就理解了大半。</p>
+  <div class="cmd-grid">
+    <div class="cmd">
+      <div class="k"><span class="c">确认版本</span> · 装的是 GraalVM</div>
+      <pre>java -version
+# openjdk version "25" 2025-09-16
+# GraalVM CE 25.0.0 (build 25+36-jvmci-25.0)</pre>
+      <div class="d">输出带 GraalVM/JVMCI 字样即发行版；普通 JDK 也能装 Graal 编译器组件实验 JIT，但 native-image 工具链只在 GraalVM/Mandrel。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">安装工具链</span> · native-image</div>
+      <pre># GraalVM 20.x 及以前：gu install native-image
+# 21+：随发行版独立下载 Native Image 组件包
+native-image --version</pre>
+      <div class="d">gu 已在现代版本退役，组件改为独立下载安装；Windows 上首次构建需要 Visual Studio 的 C 工具链（cl.exe）。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">第一个 AOT</span> · HelloWorld</div>
+      <pre>javac Hello.java
+native-image Hello -o hello
+# 构建 30s~1min（含静态分析）
+.\hello.exe</pre>
+      <div class="d">构建期做封闭世界分析较慢，运行期毫秒即出。对比：java Hello 的启动通常要几百毫秒到秒级。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">普通 JDK 开 Graal JIT</span></div>
+      <pre>java -XX:+UnlockExperimentalVMOptions \
+     -XX:Compiler=graal -XX:+PrintCompilation \
+     -version</pre>
+      <div class="d">JDK 16+ 内置 Graal 编译器模块；PrintCompilation 输出里能看到编译器名（graal 而非 C2）与编译层级。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">Polyglot 互调</span> · Java 调 JS</div>
+      <pre>import org.graalvm.polyglot.*;
+var ctx = Context.create();
+Value fn = ctx.eval("js",
+  "x =&gt; x * 2 + 1");
+System.out.println(fn.execute(21)); // 43</pre>
+      <div class="d">同一进程内跑 JS 并取回结果；还可 js→python、python→Java 双向互调，体验「多语言共享堆」。</div>
+    </div>
+    <div class="cmd">
+      <div class="k"><span class="c">反射自动配置</span> · agent</div>
+      <pre>java -agentlib:native-image-agent=config-output-dir=./META-INF/native-image Hello
+native-image Hello -o hello</pre>
+      <div class="d">跑一遍带 agent 的 JVM 版，自动生成 reflect-config.json / proxy-config.json；构建时自动读取 META-INF/native-image 下的配置。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑦ 源码学习路线 ===== -->
+<section class="domain c5" id="d7">
+  <div class="domain-head">
+    <span class="domain-no">07</span>
+    <span class="domain-title">源码学习路线</span>
+    <span class="domain-en">SOURCE CODE MAP</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>GraalVM 主线仓库 oracle/graal 按模块分目录，学编译器进 `compiler/`、学 AOT 进 `substratevm/`、学多语言进 `truffle/`</b>——比 OpenJDK 仓库小得多，sparse checkout 即可。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">仓库规模</div>
+      <div class="s"><span class="path">github.com/oracle/graal · 数百 MB 级</span></div>
+      <div class="d">比 OpenJDK 全量仓库小；若只学一个模块，用 git sparse-checkout 只拉 compiler/ 或 substratevm/，本机磁盘与克隆时间都省。</div>
+    </div>
+    <div class="card">
+      <div class="k">compiler/ 入口</div>
+      <div class="s"><span class="path">GraalCompiler.java · 编译主流程</span></div>
+      <div class="d">看 HighTier/MidTier/LowTier 分层优化、PhiNode 数据流、escape analysis；对照 execution-engine.html 的 JIT 管道概念。</div>
+    </div>
+    <div class="card">
+      <div class="k">substratevm/ 入口</div>
+      <div class="s"><span class="path">NativeImageGenerator.java · 静态分析</span></div>
+      <div class="d">封闭世界分析（Points-to analysis）→ 图构建 → 编译 → 镜像写入；配套看 SVM 自带 GC（NImageHeap/分代）的实现。</div>
+    </div>
+    <div class="card">
+      <div class="k">truffle/ 入口</div>
+      <div class="s"><span class="path">TruffleLanguage.java · 语言 SPI</span></div>
+      <div class="d">看懂「写解释器 + 部分求值」的接口抽象，再挑 GraalJS/GraalPy 一个具体实现跟进 Node/AST 的执行与 specialization。</div>
+    </div>
+    <div class="card">
+      <div class="k">JVMCI 桥</div>
+      <div class="s"><span class="path">jdk.internal.vm.compiler · JVM Compiler Interface</span></div>
+      <div class="d">Graal 之所以能替换 C2，靠 JVMCI 这套 HotSpot 编译接口：Graal 通过它拿到字节码、回填机器码，是「换编译器不换运行时」的接线层。</div>
+    </div>
+    <div class="card">
+      <div class="k">学习顺序建议</div>
+      <div class="s"><span class="path">先 JVM 基础 → 再 Graal JIT → 后 AOT/Truffle</span></div>
+      <div class="d">没有执行引擎/GC 基础直接读 Graal 会淹没在 IR 细节里；本仓库 wiki/JVM 的 execution-engine 与 garbage-collection 就是前置课。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 阅读路径 ===== -->
+<section class="pathway" id="pathway">
+  <div class="wrap" style="padding:0;">
+    <div class="pathway-title">建议阅读路径</div>
+    <p class="pathway-sub">从「JVM 背景」到「GraalVM 三条支线」：先看懂它与 JVM 的异同，再分别走 JIT / AOT / 多语言，最后决定要不要 sparse checkout 源码。</p>
+    <div class="steps">
+      <div class="step">
+        <div class="no">1</div>
+        <h5>补 JVM 前置</h5>
+        <p>回 execution-engine.html 看 C2 与分层编译、garbage-collection.html 看 GC——Graal 只是「换编译器」，底子没变。</p>
+      </div>
+      <div class="step">
+        <div class="no">2</div>
+        <h5>分清三个身份</h5>
+        <p>GraalVM = 发行版 / Graal = JIT 编译器 / Native Image = AOT 工具链；别把「发行版」与「编译器」混为一谈。</p>
+      </div>
+      <div class="step">
+        <div class="no">3</div>
+        <h5>跑通 JIT 实验</h5>
+        <p>普通 JDK 上 -XX:Compiler=graal 开启并 PrintCompilation 对比；再体验 PEA 与逆优化的日志行为。</p>
+      </div>
+      <div class="step">
+        <div class="no">4</div>
+        <h5>做一次 Native Image</h5>
+        <p>HelloWorld → agent 收集反射配置 → 带框架（如 Quarkus 模板）构建；用 time 量化启动与内存差异。</p>
+      </div>
+      <div class="step">
+        <div class="no">5</div>
+        <h5>试 Truffle 互调</h5>
+        <p>Polyglot Context 里 Java↔JS↔Python 传值回调，理解「多语言共享一条编译流水线」。</p>
+      </div>
+      <div class="step">
+        <div class="no">6</div>
+        <h5>决定是否深挖源码</h5>
+        <p>回 OVERVIEW.html 看整个 JVM 体系；若真学编译器，sparse checkout oracle/graal 的 compiler/ 或 substratevm/ 再开读。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>OpenJDK 21.0.2 (HotSpot) · GraalVM 专题 · 知识源：oracle/graal 官方仓库结构 + 发行版文档</span>
+    <span>GraalVM 主线代码开源 · 未在本机 clone，可按需 sparse checkout</span>
+  </div>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  var chips = Array.prototype.slice.call(document.querySelectorAll(".chip"));
+  var nodes = Array.prototype.slice.call(document.querySelectorAll(".graph .node"));
+  var targets = ["overview","d1","d2","d3","d4","d5","d6","d7","pathway"];
+
+  function setActive(id){
+    chips.forEach(function(c){ c.classList.toggle("on", c.getAttribute("data-target") === id); });
+  }
+  function jump(id){
+    var el = document.getElementById(id);
+    if(el){ el.scrollIntoView({behavior:"smooth", block:"start"}); setActive(id); }
+  }
+  chips.forEach(function(c){
+    c.addEventListener("click", function(){ jump(c.getAttribute("data-target")); });
+  });
+  nodes.forEach(function(n){
+    n.addEventListener("click", function(){ jump(n.getAttribute("data-target")); });
+  });
+
+  var sections = targets.map(function(id){ return document.getElementById(id); });
+  if("IntersectionObserver" in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){ setActive(en.target.id); }
+      });
+    }, {rootMargin:"-20% 0px -70% 0px"});
+    sections.forEach(function(s){ if(s) io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>
