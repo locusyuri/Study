@@ -1,0 +1,4 @@
+# JavaGuide 离线镜像目录：覆盖父级 *.png/*.jpg 忽略规则，图片资源随镜像入库
+!*.png
+!*.jpg
+!*.jpeg
