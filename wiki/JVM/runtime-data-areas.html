@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>运行时数据区 · JVM 内存地图</title>
+<title>运行时数据区 · JVM 的内存地图</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%236FC7DE'/%3E%3Ctext x='32' y='45' font-size='38' font-weight='700' text-anchor='middle' fill='%230F141B'%3EJ%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;900&display=swap">
 <style>
@@ -16,13 +16,13 @@
     --text2:#9AA5B1;
     --line:rgba(255,255,255,.07);
     --mono:"Cascadia Code",ui-monospace,Consolas,"SF Mono",Menlo,monospace;
-    --c1:#E8A87C; /* 线程私有 橙 */
-    --c2:#7FB4E8; /* 程序计数器/本地方法栈 蓝 */
-    --c3:#6ECBA8; /* 堆 绿 */
+    --c1:#E8A87C; /* 堆 橙 */
+    --c2:#7FB4E8; /* 主色/线程私有 蓝 */
+    --c3:#6ECBA8; /* 总览 绿 */
     --c4:#B98CE8; /* 方法区 紫 */
-    --c5:#6FC7DE; /* 虚拟机栈 青 */
-    --c6:#E88AA5; /* 常量池 玫红 */
-    --c7:#E3D27A; /* 直接内存 黄 */
+    --c5:#6FC7DE; /* 常量池 青 */
+    --c6:#E88AA5; /* 直接内存 玫红 */
+    --c7:#E3D27A; /* 实验 黄 */
   }
   *{margin:0;padding:0;box-sizing:border-box;}
   html{scroll-behavior:smooth;}
@@ -61,7 +61,7 @@
     font-weight:900;font-size:15px;letter-spacing:.5px;white-space:nowrap;
     margin-right:10px;
   }
-  .brand b{color:#6FC7DE;}
+  .brand b{color:#7FB4E8;}
   .chip{
     flex:0 0 auto;
     padding:4px 12px;border-radius:999px;
@@ -82,7 +82,7 @@
     text-transform:uppercase;margin-bottom:14px;
   }
   .hero h1{font-size:38px;line-height:1.22;font-weight:900;letter-spacing:.5px;}
-  .hero h1 .hl{color:#6FC7DE;}
+  .hero h1 .hl{color:#7FB4E8;}
   .hero .sub{margin-top:14px;color:var(--text2);font-size:15px;max-width:540px;}
   .hero .sub b{color:var(--text);font-weight:600;}
   .pillars{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap;}
@@ -144,34 +144,11 @@
   .fig .cap{font-size:12px;color:var(--text2);margin-bottom:14px;}
   .fig svg{width:100%;height:auto;display:block;}
 
-  /* ===== 专题 ===== */
-  .topic{padding:40px 0;border-top:1px solid var(--line);scroll-margin-top:70px;}
-  .topic-title{font-size:23px;font-weight:700;margin-bottom:6px;}
-  .topic-sub{color:var(--text2);font-size:13.5px;margin-bottom:18px;}
-  .topic-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;}
-  .topic-box{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:16px 18px;}
-  .topic-box h4{font-size:14px;font-weight:700;margin-bottom:10px;}
-  .topic-box h4 em{font-style:normal;font-size:11px;font-weight:500;color:var(--text2);margin-left:6px;letter-spacing:1px;}
-  .topic-box ul{list-style:none;}
-  .topic-box li{font-size:13px;color:var(--text);padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.06);}
-  .topic-box li:last-child{border-bottom:none;}
-  .topic-box li .m{color:var(--text2);}
-  .topic-box.t1 h4{color:var(--c5);}
-  .topic-box.t2 h4{color:var(--c3);}
-  .topic-box.t3 h4{color:var(--c4);}
-  .topic-box.t4 h4{color:var(--c6);}
-  .algo{
-    font-family:var(--mono);font-size:12.5px;line-height:1.85;
-    background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);
-    border-radius:8px;padding:14px 16px;white-space:pre;overflow-x:auto;
-  }
-  .algo.c5{border-color:rgba(111,199,222,.25);color:#C4E6F0;}
-
   /* ===== 时间轴 ===== */
-  .tl{display:grid;grid-template-columns:110px 1fr;gap:0 18px;margin-top:6px;}
+  .tl{display:grid;grid-template-columns:96px 1fr;gap:0 18px;margin-top:6px;}
   .tl-item{display:contents;}
   .tl-time{
-    font-family:var(--mono);font-size:13px;font-weight:700;color:var(--c4);
+    font-family:var(--mono);font-size:12.5px;font-weight:700;color:var(--c4);
     text-align:right;padding:10px 0;white-space:nowrap;
   }
   .tl-body{
@@ -185,7 +162,7 @@
   .tl-body b{font-size:14px;display:block;margin-bottom:2px;}
   .tl-body span{font-size:12.5px;color:var(--text2);display:block;}
 
-  /* ===== 表格 ===== */
+  /* ===== 对比表 ===== */
   .tbl-wrap{overflow-x:auto;margin-top:6px;}
   table.tbl{
     width:100%;border-collapse:collapse;table-layout:fixed;
@@ -197,12 +174,11 @@
   }
   table.tbl td{padding:10px 12px;border-top:1px solid var(--line);color:var(--text);vertical-align:top;}
   table.tbl td .m{color:var(--text2);}
-  table.tbl td code{color:#C4E6F0;font-size:.9em;}
-  .th-exception{width:18%;}
-  .th-region{width:14%;}
-  .th-cause{width:30%;}
-  .th-param{width:22%;}
-  .th-fix{width:16%;}
+  table.tbl td code{color:#D9C4F0;font-size:.9em;}
+  .th-dim{width:18%;}
+  .th-a{width:30%;}
+  .th-b{width:30%;}
+  .th-note{width:22%;}
 
   /* ===== 命令卡片 ===== */
   .cmd-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:6px;}
@@ -242,8 +218,8 @@
     .hero h1{font-size:28px;}
     .domain-desc{margin-left:0;}
     .card .s .path{white-space:normal;}
-    .tl{grid-template-columns:86px 1fr;}
-    .tl-time{font-size:12px;}
+    .tl{grid-template-columns:78px 1fr;}
+    .tl-time{font-size:11.5px;}
     table.tbl{font-size:12px;}
   }
   @media (prefers-reduced-motion:reduce){
@@ -256,14 +232,17 @@
 
 <header>
   <div class="wrap nav">
-    <div class="brand">JVM <b>内存地图</b></div>
-    <div class="chip on" data-target="overview"><span class="dot" style="background:#6FC7DE"></span>总览</div>
-    <div class="chip" data-target="d1"><span class="dot" style="background:var(--c1)"></span>线程私有区</div>
-    <div class="chip" data-target="d2"><span class="dot" style="background:var(--c3)"></span>Java 堆</div>
-    <div class="chip" data-target="d3"><span class="dot" style="background:var(--c4)"></span>方法区</div>
-    <div class="chip" data-target="d4"><span class="dot" style="background:var(--c6)"></span>常量池与直接内存</div>
-    <div class="chip" data-target="d5"><span class="dot" style="background:var(--c7)"></span>异常与参数</div>
-    <div class="chip" data-target="d6"><span class="dot" style="background:var(--text2)"></span>验证实验</div>
+    <div class="brand">JVM <b>运行时数据区</b></div>
+    <div class="chip on" data-target="overview"><span class="dot" style="background:#7FB4E8"></span>总览</div>
+    <div class="chip" data-target="d1"><span class="dot" style="background:var(--c3)"></span>区域总览</div>
+    <div class="chip" data-target="d2"><span class="dot" style="background:var(--c2)"></span>程序计数器</div>
+    <div class="chip" data-target="d3"><span class="dot" style="background:var(--c2)"></span>虚拟机栈</div>
+    <div class="chip" data-target="d4"><span class="dot" style="background:var(--c1)"></span>堆</div>
+    <div class="chip" data-target="d5"><span class="dot" style="background:var(--c4)"></span>方法区</div>
+    <div class="chip" data-target="d6"><span class="dot" style="background:var(--c5)"></span>常量池</div>
+    <div class="chip" data-target="d7"><span class="dot" style="background:var(--c6)"></span>直接内存</div>
+    <div class="chip" data-target="d8"><span class="dot" style="background:var(--c1)"></span>对象探秘</div>
+    <div class="chip" data-target="d9"><span class="dot" style="background:var(--c7)"></span>实验</div>
     <div class="chip" data-target="pathway"><span class="dot" style="background:var(--text2)"></span>阅读路径</div>
   </div>
 </header>
@@ -274,86 +253,88 @@
     <div>
       <div class="kicker">JVM · Runtime Data Areas · Deep Dive</div>
       <h1>运行时数据区<br><span class="hl">JVM 的内存地图</span></h1>
-      <p class="sub">简单说：<b>JVM 把内存分成「线程私有的草稿纸」（PC、虚拟机栈、本地方法栈）和「线程共享的大仓库」（堆、方法区）</b>。谁用什么区域、区域里装什么、装满了抛什么异常，就是本页的全部内容。</p>
+      <p class="sub">简单说：<b>JVM 把内存切成若干区域——线程私有的程序计数器、虚拟机栈、本地方法栈，加上线程共享的堆与方法区</b>；JDK 8 起方法区的实现从永久代换成了元空间（本地内存）。</p>
       <div class="pillars">
         <div class="pillar">
           <div class="n">线程私有</div>
-          <div class="t">PC · 栈 · 本地方法栈</div>
-          <span class="f">随线程生灭 · 无 GC</span>
+          <div class="t">PC · 虚拟机栈 · 本地方法栈</div>
+          <span class="f">随线程生灭 · 互不干扰</span>
         </div>
         <div class="pillar">
           <div class="n">线程共享</div>
           <div class="t">堆 · 方法区</div>
-          <span class="f">GC 主战场 · 生命周期最长</span>
+          <span class="f">启动即建 · GC 主场</span>
         </div>
         <div class="pillar">
-          <div class="n">堆外</div>
-          <div class="t">直接内存</div>
-          <span class="f">NIO · 不受 -Xmx 约束</span>
+          <div class="n">本地内存</div>
+          <div class="t">元空间 · 直接内存</div>
+          <span class="f">规范之外 · 同样会 OOM</span>
         </div>
       </div>
     </div>
     <div class="graph" aria-label="运行时数据区全景图">
-      <svg viewBox="0 0 720 470" role="img" aria-hidden="true">
-        <!-- 分栏 -->
-        <rect x="20" y="20" width="310" height="432" rx="12" fill="rgba(127,180,232,.05)" stroke="rgba(127,180,232,.22)"/>
-        <text x="175" y="47" text-anchor="middle" fill="#7FB4E8" font-size="13" font-weight="700">线程私有 Thread-Private</text>
-        <rect x="390" y="20" width="310" height="432" rx="12" fill="rgba(110,203,168,.05)" stroke="rgba(110,203,168,.22)"/>
-        <text x="545" y="47" text-anchor="middle" fill="#6ECBA8" font-size="13" font-weight="700">线程共享 Thread-Shared</text>
+      <svg viewBox="0 0 720 440" role="img" aria-hidden="true">
+        <!-- 左：运行时数据区域 -->
+        <g class="node" data-target="d1">
+          <rect x="20" y="40" width="430" height="360" rx="8" fill="#141B24" stroke="#7FB4E8" stroke-width="1.6"/>
+          <text x="235" y="66" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">运行时数据区域（JDK 8 · HotSpot）</text>
 
-        <!-- PC -->
-        <g class="node" data-target="d1">
-          <rect x="45" y="70" width="260" height="58" rx="8" fill="#141B24" stroke="#7FB4E8" stroke-width="1.4"/>
-          <text x="62" y="94" fill="#E7EAEE" font-size="13" font-weight="600">程序计数器 PC Register</text>
-          <text x="62" y="114" fill="#9AA5B1" font-size="11.5">当前字节码行号 · 唯一无 OOM 区域</text>
-        </g>
-        <!-- JVM Stack -->
-        <g class="node" data-target="d1">
-          <rect x="45" y="146" width="260" height="152" rx="8" fill="#141B24" stroke="#6FC7DE" stroke-width="1.4"/>
-          <text x="62" y="170" fill="#E7EAEE" font-size="13" font-weight="600">虚拟机栈 JVM Stack</text>
-          <text x="62" y="190" fill="#9AA5B1" font-size="11.5">-Xss 控制深度 · 栈帧为最小单位</text>
-          <rect x="66" y="206" width="216" height="26" rx="4" fill="rgba(111,199,222,.10)" stroke="rgba(111,199,222,.35)"/>
-          <text x="78" y="223" fill="#C4E6F0" font-size="11.5">帧3 · 调用链最外层</text>
-          <rect x="66" y="238" width="216" height="26" rx="4" fill="rgba(111,199,222,.14)" stroke="rgba(111,199,222,.4)"/>
-          <text x="78" y="255" fill="#C4E6F0" font-size="11.5">帧2 · 中间调用</text>
-          <rect x="66" y="270" width="216" height="26" rx="4" fill="rgba(111,199,222,.20)" stroke="rgba(111,199,222,.5)"/>
-          <text x="78" y="287" fill="#E7EAEE" font-size="11.5" font-weight="600">帧1 · 当前执行</text>
-        </g>
-        <!-- Native Stack -->
-        <g class="node" data-target="d1">
-          <rect x="45" y="316" width="260" height="58" rx="8" fill="#141B24" stroke="#7FB4E8" stroke-width="1.4"/>
-          <text x="62" y="340" fill="#E7EAEE" font-size="13" font-weight="600">本地方法栈 Native Stack</text>
-          <text x="62" y="360" fill="#9AA5B1" font-size="11.5">native 方法 · HotSpot 与虚拟机栈合并</text>
+          <!-- 共享区 -->
+          <rect x="40" y="84" width="390" height="120" rx="6" fill="rgba(232,168,124,.05)" stroke="rgba(232,168,124,.4)"/>
+          <text x="52" y="104" fill="#E8A87C" font-size="11" font-weight="700">线程共享</text>
+          <rect x="56" y="116" width="180" height="72" rx="6" fill="rgba(232,168,124,.10)" stroke="rgba(232,168,124,.45)"/>
+          <text x="146" y="140" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">堆 Heap</text>
+          <text x="146" y="160" text-anchor="middle" fill="#9AA5B1" font-size="10.5">对象实例 · 数组</text>
+          <text x="146" y="178" text-anchor="middle" fill="#9AA5B1" font-size="10.5">含字符串常量池</text>
+          <rect x="252" y="116" width="162" height="72" rx="6" fill="rgba(185,140,232,.10)" stroke="rgba(185,140,232,.45)"/>
+          <text x="333" y="140" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">方法区</text>
+          <text x="333" y="160" text-anchor="middle" fill="#9AA5B1" font-size="10.5">类元数据 · 字节码</text>
+          <text x="333" y="178" text-anchor="middle" fill="#9AA5B1" font-size="10.5">运行时常量池</text>
+
+          <!-- 私有区 -->
+          <rect x="40" y="220" width="390" height="160" rx="6" fill="rgba(127,180,232,.05)" stroke="rgba(127,180,232,.4)"/>
+          <text x="52" y="240" fill="#7FB4E8" font-size="11" font-weight="700">线程私有 ×N</text>
+          <rect x="56" y="254" width="182" height="110" rx="6" fill="rgba(255,255,255,.03)" stroke="rgba(255,255,255,.14)"/>
+          <text x="147" y="276" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">线程 Thread</text>
+          <text x="147" y="298" text-anchor="middle" fill="#9AA5B1" font-size="10.5">虚拟机栈（栈帧）</text>
+          <text x="147" y="316" text-anchor="middle" fill="#9AA5B1" font-size="10.5">本地方法栈</text>
+          <text x="147" y="334" text-anchor="middle" fill="#9AA5B1" font-size="10.5">程序计数器</text>
+          <text x="147" y="354" text-anchor="middle" fill="#9AA5B1" font-size="10.5">（HotSpot 两栈合一）</text>
+          <rect x="254" y="254" width="160" height="110" rx="6" fill="rgba(255,255,255,.03)" stroke="rgba(255,255,255,.14)"/>
+          <text x="334" y="276" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">线程 Thread</text>
+          <text x="334" y="298" text-anchor="middle" fill="#9AA5B1" font-size="10.5">虚拟机栈（栈帧）</text>
+          <text x="334" y="316" text-anchor="middle" fill="#9AA5B1" font-size="10.5">本地方法栈</text>
+          <text x="334" y="334" text-anchor="middle" fill="#9AA5B1" font-size="10.5">程序计数器</text>
+          <text x="334" y="354" text-anchor="middle" fill="#9AA5B1" font-size="10.5">（HotSpot 两栈合一）</text>
         </g>
 
-        <!-- Heap -->
-        <g class="node" data-target="d2">
-          <rect x="415" y="70" width="260" height="192" rx="8" fill="#141B24" stroke="#6ECBA8" stroke-width="1.4"/>
-          <text x="432" y="94" fill="#E7EAEE" font-size="13" font-weight="600">Java 堆 Heap</text>
-          <text x="432" y="114" fill="#9AA5B1" font-size="11.5">-Xms / -Xmx · 对象分配主战场</text>
-          <rect x="432" y="128" width="148" height="42" rx="4" fill="rgba(110,203,168,.12)" stroke="rgba(110,203,168,.4)"/>
-          <text x="506" y="153" text-anchor="middle" fill="#BFE8D5" font-size="11.5">Eden（8）</text>
-          <rect x="586" y="128" width="40" height="42" rx="4" fill="rgba(110,203,168,.18)" stroke="rgba(110,203,168,.5)"/>
-          <text x="606" y="153" text-anchor="middle" fill="#BFE8D5" font-size="11.5">S0</text>
-          <rect x="632" y="128" width="40" height="42" rx="4" fill="rgba(110,203,168,.18)" stroke="rgba(110,203,168,.5)"/>
-          <text x="652" y="153" text-anchor="middle" fill="#BFE8D5" font-size="11.5">S1</text>
-          <rect x="432" y="178" width="240" height="76" rx="4" fill="rgba(185,140,232,.10)" stroke="rgba(185,140,232,.4)"/>
-          <text x="552" y="207" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">老年代 Old</text>
-          <text x="552" y="227" text-anchor="middle" fill="#9AA5B1" font-size="11">晋升 / 大对象</text>
+        <!-- 右：本地内存 -->
+        <g class="node" data-target="d7">
+          <rect x="480" y="40" width="220" height="360" rx="8" fill="#141B24" stroke="#E88AA5" stroke-width="1.4"/>
+          <text x="590" y="66" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">本地内存</text>
+          <rect x="500" y="84" width="180" height="130" rx="6" fill="rgba(185,140,232,.10)" stroke="rgba(185,140,232,.45)"/>
+          <text x="590" y="106" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">元空间 Metaspace</text>
+          <text x="590" y="126" text-anchor="middle" fill="#9AA5B1" font-size="10.5">JDK 8 起方法区的实现</text>
+          <text x="590" y="144" text-anchor="middle" fill="#9AA5B1" font-size="10.5">含运行时常量池</text>
+          <text x="590" y="164" text-anchor="middle" fill="#9AA5B1" font-size="10.5">受本地内存限制</text>
+          <text x="590" y="186" text-anchor="middle" fill="#9AA5B1" font-size="10.5">-XX:MaxMetaspaceSize</text>
+          <rect x="500" y="230" width="180" height="130" rx="6" fill="rgba(232,138,165,.10)" stroke="rgba(232,138,165,.45)"/>
+          <text x="590" y="252" text-anchor="middle" fill="#F0C4D4" font-size="12" font-weight="600">直接内存</text>
+          <text x="590" y="272" text-anchor="middle" fill="#9AA5B1" font-size="10.5">NIO · DirectByteBuffer</text>
+          <text x="590" y="290" text-anchor="middle" fill="#9AA5B1" font-size="10.5">堆外 · 减少复制</text>
+          <text x="590" y="310" text-anchor="middle" fill="#9AA5B1" font-size="10.5">-XX:MaxDirectMemorySize</text>
+          <text x="590" y="336" text-anchor="middle" fill="#9AA5B1" font-size="10.5">非规范定义 · 同样 OOM</text>
         </g>
-        <!-- Method Area -->
-        <g class="node" data-target="d3">
-          <rect x="415" y="280" width="260" height="112" rx="8" fill="#141B24" stroke="#B98CE8" stroke-width="1.4"/>
-          <text x="432" y="304" fill="#E7EAEE" font-size="13" font-weight="600">方法区（元空间 Metaspace）</text>
-          <text x="432" y="324" fill="#9AA5B1" font-size="11.5">本地内存 · -XX:MetaspaceSize</text>
-          <rect x="432" y="338" width="240" height="44" rx="4" fill="rgba(185,140,232,.12)" stroke="rgba(185,140,232,.4)"/>
-          <text x="552" y="357" text-anchor="middle" fill="#E7EAEE" font-size="11.5">运行时常量池</text>
-          <text x="552" y="373" text-anchor="middle" fill="#9AA5B1" font-size="11">类元数据 · 方法字节码</text>
-        </g>
-        <!-- Direct Memory -->
-        <g class="node" data-target="d4">
-          <rect x="415" y="410" width="260" height="42" rx="8" fill="rgba(227,210,122,.06)" stroke="rgba(227,210,122,.45)" stroke-dasharray="5 4"/>
-          <text x="545" y="436" text-anchor="middle" fill="#E3D27A" font-size="12" font-weight="600">直接内存 Direct Memory（堆外）</text>
+
+        <!-- 箭头 -->
+        <defs>
+          <marker id="arr2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="rgba(255,255,255,.3)"/>
+          </marker>
+        </defs>
+        <g stroke="rgba(255,255,255,.3)" stroke-width="1.4" fill="none">
+          <path d="M 450 150 C 468 150 468 150 478 150" marker-end="url(#arr2)"/>
+          <path d="M 450 296 C 468 296 468 296 478 296" marker-end="url(#arr2)"/>
         </g>
       </svg>
     </div>
@@ -362,373 +343,660 @@
 
 <main class="wrap">
 
-<!-- ===== ① 线程私有区 ===== -->
-<section class="domain c1" id="d1">
+<!-- ===== ① 区域总览 ===== -->
+<section class="domain c3" id="d1">
   <div class="domain-head">
     <span class="domain-no">01</span>
-    <span class="domain-title">线程私有区</span>
-    <span class="domain-en">THREAD-PRIVATE AREAS</span>
+    <span class="domain-title">运行时数据区总览</span>
+    <span class="domain-en">RUNTIME DATA AREAS OVERVIEW</span>
   </div>
-  <p class="domain-desc">一句话理解：<b>每个线程都有自己独立的三块「草稿纸」，互不共享、随线程生灭、不参与 GC</b>。它们回答的问题是：这条线程现在执行到哪、调用栈有多深、本地方法栈在哪。</p>
+  <p class="domain-desc">一句话理解：<b>按「是否被线程共享」把内存分区：私有区随线程生灭，共享区启动即建</b>；直接内存不在规范里，但一样要防 OOM。规范本身留了极大的实现自由度。</p>
   <div class="cards">
     <div class="card">
-      <div class="k">程序计数器 PC</div>
-      <div class="s"><span class="path">java.lang.Thread</span> · <span class="path">HotSpot: runtime/thread.cpp</span></div>
-      <div class="d">记录当前线程正在执行的字节码行号（native 方法时为 undefined）。线程切换后靠它恢复位置，是「线程怎么知道自己跑到哪」的答案。唯一不会 OOM 的区域。</div>
+      <div class="k">线程私有三件套</div>
+      <div class="s"><span class="path">程序计数器 · 虚拟机栈 · 本地方法栈</span></div>
+      <div class="d">生命周期与线程同步：线程创建则创建、线程销毁则销毁。各线程互不影响，是「线程切换后能回到正确位置」的前提。</div>
     </div>
     <div class="card">
-      <div class="k">虚拟机栈 JVM Stack</div>
-      <div class="s"><span class="path">java.lang.StackOverflowError</span> · <span class="path">-Xss256k</span></div>
-      <div class="d">每次方法调用压入一个栈帧（Frame）。栈深度超限抛 StackOverflowError；栈空间可扩展但通常固定。-Xss 控制单线程栈大小，递归越深占用越大。</div>
-    </div>
-    <div class="card">
-      <div class="k">本地方法栈</div>
-      <div class="s"><span class="path">jdk.internal.misc.Unsafe</span> · native 方法</div>
-      <div class="d">为 native（C/C++）方法服务。HotSpot 实现中与虚拟机栈合并；Unsafe 的本地内存操作、JNI 调用都经过这条路径。</div>
-    </div>
-    <div class="card">
-      <div class="k">栈帧 Frame</div>
-      <div class="s"><span class="path">HotSpot: runtime/frame.cpp</span></div>
-      <div class="d">方法执行的完整上下文：局部变量表 + 操作数栈 + 动态链接 + 返回地址（见下方专题图）。jstack 打印的每行 = 一个栈帧。</div>
-    </div>
-  </div>
-
-  <div class="fig">
-    <h4>专题图：一个栈帧的内部结构</h4>
-    <p class="cap">方法从调用到返回，栈帧承载全部执行状态。自上而下是编译期可确定与运行期动态两大部分。</p>
-    <svg viewBox="0 0 720 300" role="img" aria-label="栈帧结构示意图">
-      <!-- 左：栈帧 -->
-      <rect x="30" y="24" width="330" height="250" rx="10" fill="#161E28" stroke="#6FC7DE" stroke-width="1.4"/>
-      <text x="195" y="50" text-anchor="middle" fill="#E7EAEE" font-size="14" font-weight="700">栈帧 Frame</text>
-
-      <rect x="52" y="66" width="286" height="40" rx="6" fill="rgba(111,199,222,.10)" stroke="rgba(111,199,222,.4)"/>
-      <text x="68" y="83" fill="#C4E6F0" font-size="12" font-weight="600">局部变量表 Local Variables</text>
-      <text x="68" y="99" fill="#9AA5B1" font-size="11">slot 数组 · index 0 是 this · long/double 占 2 slot</text>
-
-      <rect x="52" y="114" width="286" height="40" rx="6" fill="rgba(111,199,222,.14)" stroke="rgba(111,199,222,.45)"/>
-      <text x="68" y="131" fill="#C4E6F0" font-size="12" font-weight="600">操作数栈 Operand Stack</text>
-      <text x="68" y="147" fill="#9AA5B1" font-size="11">字节码运算的临时工作台 · 深度编译期已定</text>
-
-      <rect x="52" y="162" width="286" height="40" rx="6" fill="rgba(111,199,222,.14)" stroke="rgba(111,199,222,.45)"/>
-      <text x="68" y="179" fill="#C4E6F0" font-size="12" font-weight="600">动态链接 Dynamic Linking</text>
-      <text x="68" y="195" fill="#9AA5B1" font-size="11">符号引用 → 直接引用 · 指向运行时常量池</text>
-
-      <rect x="52" y="210" width="286" height="40" rx="6" fill="rgba(111,199,222,.10)" stroke="rgba(111,199,222,.4)"/>
-      <text x="68" y="227" fill="#C4E6F0" font-size="12" font-weight="600">返回地址 Return Address</text>
-      <text x="68" y="243" fill="#9AA5B1" font-size="11">方法退出后回到调用者下一条指令</text>
-
-      <!-- 右：调用链 -->
-      <rect x="410" y="24" width="280" height="250" rx="10" fill="#161E28" stroke="rgba(255,255,255,.10)"/>
-      <text x="550" y="50" text-anchor="middle" fill="#E7EAEE" font-size="14" font-weight="700">调用链 = 栈帧序列</text>
-      <rect x="440" y="70" width="220" height="34" rx="6" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.12)"/>
-      <text x="456" y="92" fill="#9AA5B1" font-size="12">main()          帧1（底部）</text>
-      <rect x="440" y="112" width="220" height="34" rx="6" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.14)"/>
-      <text x="456" y="134" fill="#9AA5B1" font-size="12">compute()       帧2</text>
-      <rect x="440" y="154" width="220" height="34" rx="6" fill="rgba(111,199,222,.16)" stroke="rgba(111,199,222,.45)"/>
-      <text x="456" y="176" fill="#E7EAEE" font-size="12" font-weight="600">add()          帧3（栈顶·执行中）</text>
-      <text x="550" y="224" text-anchor="middle" fill="#9AA5B1" font-size="11.5">jstack 输出自栈顶向栈底，</text>
-      <text x="550" y="242" text-anchor="middle" fill="#9AA5B1" font-size="11.5">第一行 = 正在执行的帧</text>
-    </svg>
-  </div>
-</section>
-
-<!-- ===== ② Java 堆 ===== -->
-<section class="domain c3" id="d2">
-  <div class="domain-head">
-    <span class="domain-no">02</span>
-    <span class="domain-title">Java 堆</span>
-    <span class="domain-en">JAVA HEAP</span>
-  </div>
-  <p class="domain-desc">一句话理解：<b>堆是「对象的大仓库」：新建对象先到 Eden，躲过几次 GC 就晋升老年代</b>。它是 GC 的主战场，也是内存调优最先看的地方。</p>
-  <div class="cards">
-    <div class="card">
-      <div class="k">Eden / Survivor / Old</div>
-      <div class="s"><span class="path">-XX:SurvivorRatio=8</span></div>
-      <div class="d">新生代 = Eden + S0 + S1（默认 8:1:1）。新对象进 Eden；Minor GC 后存活对象在 S0/S1 间复制，S 区始终保留一个空的。</div>
-    </div>
-    <div class="card">
-      <div class="k">对象晋升</div>
-      <div class="s"><span class="path">-XX:MaxTenuringThreshold=15</span></div>
-      <div class="d">每躲过一次 Minor GC 年龄 +1（对象头 Mark Word 存年龄），达到阈值晋升老年代；大对象（-XX:PretenureSizeThreshold）直接进老年代。</div>
-    </div>
-    <div class="card">
-      <div class="k">堆大小参数</div>
-      <div class="s"><span class="path">-Xms / -Xmx / -Xmn</span></div>
-      <div class="d">初始堆 / 最大堆 / 新生代大小。生产建议 -Xms = -Xmx 避免扩容抖动；-Xmn 控制新生代占比，过大挤压老年代、过小频繁 Minor GC。</div>
-    </div>
-    <div class="card">
-      <div class="k">分配路径</div>
-      <div class="s"><span class="path">HotSpot: gc/shared/collectedHeap.cpp · TLAB</span></div>
-      <div class="d">优先 TLAB（线程本地分配缓冲，无竞争）→ 失败走 CAS 分配 → Eden 放不下则直接尝试老年代。理解这条链，才能理解「为什么有的对象直接进老年代」。</div>
-    </div>
-    <div class="card">
-      <div class="k">堆与收集器</div>
-      <div class="s"><span class="path">-XX:+UseG1GC（JDK 9+ 默认）· -XX:+UseParallelGC</span></div>
-      <div class="d">Parallel 下堆按分代物理连续；G1 起堆切成 Region（约 2048 个），逻辑分代、物理不连续，停顿可预测。堆「长什么样」取决于收集器。</div>
-    </div>
-    <div class="card">
-      <div class="k">堆溢出 OOM</div>
-      <div class="s"><span class="path">java.lang.OutOfMemoryError: Java heap space</span></div>
-      <div class="d">对象分配不下时抛出。排查三件套：-XX:+HeapDumpOnOutOfMemoryError 自动转储 → MAT 分析支配树 → 定位泄漏对象与引用链。</div>
-    </div>
-  </div>
-
-  <div class="fig">
-    <h4>专题图：对象在堆里的旅程（分代 + 晋升）</h4>
-    <p class="cap">默认 Parallel/分代模型示意；G1 为 Region 化实现，逻辑分代一致。箭头 = 对象移动路径。</p>
-    <svg viewBox="0 0 720 300" role="img" aria-label="堆分代与对象晋升示意图">
-      <!-- 新生代 -->
-      <rect x="30" y="100" width="420" height="120" rx="10" fill="rgba(110,203,168,.05)" stroke="rgba(110,203,168,.35)"/>
-      <text x="240" y="126" text-anchor="middle" fill="#BFE8D5" font-size="13" font-weight="700">新生代 Young（-Xmn）</text>
-
-      <rect x="52" y="140" width="240" height="56" rx="6" fill="rgba(110,203,168,.12)" stroke="rgba(110,203,168,.45)"/>
-      <text x="172" y="162" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">Eden</text>
-      <text x="172" y="182" text-anchor="middle" fill="#9AA5B1" font-size="11">新对象分配区 · 8/10</text>
-
-      <rect x="304" y="140" width="60" height="56" rx="6" fill="rgba(110,203,168,.18)" stroke="rgba(110,203,168,.55)"/>
-      <text x="334" y="172" text-anchor="middle" fill="#BFE8D5" font-size="12" font-weight="600">S0</text>
-
-      <rect x="376" y="140" width="60" height="56" rx="6" fill="rgba(110,203,168,.18)" stroke="rgba(110,203,168,.55)"/>
-      <text x="406" y="172" text-anchor="middle" fill="#BFE8D5" font-size="12" font-weight="600">S1</text>
-
-      <!-- 老年代 -->
-      <rect x="470" y="100" width="220" height="120" rx="10" fill="rgba(185,140,232,.05)" stroke="rgba(185,140,232,.35)"/>
-      <text x="580" y="126" text-anchor="middle" fill="#D9C4F0" font-size="13" font-weight="700">老年代 Old</text>
-      <text x="580" y="152" text-anchor="middle" fill="#9AA5B1" font-size="11">晋升 / 大对象</text>
-      <text x="580" y="172" text-anchor="middle" fill="#9AA5B1" font-size="11">Full GC 标记整理</text>
-      <text x="580" y="192" text-anchor="middle" fill="#9AA5B1" font-size="11">或 G1 并发回收</text>
-
-      <!-- 流程 -->
-      <g stroke="rgba(255,255,255,.35)" stroke-width="1.4" fill="none">
-        <path d="M 60 84 C 120 84 120 96 160 134" marker-end="url(#arr1)"/>
-        <path d="M 300 168 C 330 168 330 168 300 168" stroke="rgba(255,255,255,0)" />
-        <path d="M 300 180 L 300 196 C 300 214 330 214 360 214 C 385 214 392 214 412 208" marker-end="url(#arr2)"/>
-        <path d="M 430 140 C 450 120 455 112 468 122" marker-end="url(#arr3)"/>
-      </g>
-      <defs>
-        <marker id="arr1" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-          <path d="M0,0 L6,3 L0,6 Z" fill="rgba(255,255,255,.5)"/>
-        </marker>
-        <marker id="arr2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-          <path d="M0,0 L6,3 L0,6 Z" fill="rgba(255,255,255,.5)"/>
-        </marker>
-        <marker id="arr3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-          <path d="M0,0 L6,3 L0,6 Z" fill="rgba(255,255,255,.5)"/>
-        </marker>
-      </defs>
-
-      <text x="62" y="78" fill="#9AA5B1" font-size="11.5">① new 对象 → Eden（优先 TLAB）</text>
-      <text x="330" y="238" fill="#9AA5B1" font-size="11.5">② Minor GC：存活对象 S0/S1 互拷，年龄 +1</text>
-      <text x="470" y="88" fill="#9AA5B1" font-size="11.5">③ 年龄达阈值 / 大对象 → 晋升 Old</text>
-    </svg>
-  </div>
-</section>
-
-<!-- ===== ③ 方法区 ===== -->
-<section class="domain c4" id="d3">
-  <div class="domain-head">
-    <span class="domain-no">03</span>
-    <span class="domain-title">方法区 / 元空间</span>
-    <span class="domain-en">METHOD AREA &amp; METASPACE</span>
-  </div>
-  <p class="domain-desc">一句话理解：<b>方法区装「类本身的信息」而不是对象：类元数据、运行时常量池、方法字节码</b>。JDK 8 起它从堆里的永久代搬到本地内存，改名 Metaspace。</p>
-  <div class="cards">
-    <div class="card">
-      <div class="k">Metaspace 内容</div>
-      <div class="s"><span class="path">java.lang.Class</span> · <span class="path">HotSpot: memory/metaspace/</span></div>
-      <div class="d">类元数据（Klass 结构）、运行时常量池、字段/方法信息、方法字节码、类加载器引用。静态变量 JDK 7 后已移入堆，注意与「类信息」区分。</div>
-    </div>
-    <div class="card">
-      <div class="k">为什么弃永久代</div>
-      <div class="s"><span class="path">JEP 122：PermGen 移除</span></div>
-      <div class="d">永久代大小难估、与堆耦合、回收脆弱；改为本地内存后 Metaspace 默认可无限增长（受物理内存限制），且字符串常量池移入堆。</div>
-    </div>
-    <div class="card">
-      <div class="k">元空间参数</div>
-      <div class="s"><span class="path">-XX:MetaspaceSize · -XX:MaxMetaspaceSize</span></div>
-      <div class="d">MetaspaceSize 是触发 GC 的初始阈值（不是上限）；MaxMetaspaceSize 设硬上限，超限抛 OOM: Metaspace。动态生成类的场景（反射、CGLIB）尤其要关注。</div>
-    </div>
-    <div class="card">
-      <div class="k">运行时常量池</div>
-      <div class="s"><span class="path">HotSpot: oops/constantPool.hpp</span></div>
-      <div class="d">类文件常量池（CONSTANT_Class/Methodref/Utf8…）的运行时版本，存字面量与符号引用；动态链接阶段在此完成「符号 → 直接引用」替换。</div>
-    </div>
-    <div class="card">
-      <div class="k">类加载器与泄漏</div>
-      <div class="s"><span class="path">java.lang.ClassLoader · OOM: Metaspace</span></div>
-      <div class="d">类由加载器 + 类名唯一定位；反复创建加载器（如热部署、反射框架）且无法卸载 → 元空间持续增长，是 Metaspace OOM 的头号原因。</div>
-    </div>
-  </div>
-
-  <div class="fig">
-    <h4>演进时间轴：PermGen → Metaspace</h4>
-    <p class="cap">同一份「类信息」的存放位置与治理方式，随 JDK 演进发生了两次关键变化。</p>
-    <div class="tl">
-      <div class="tl-item">
-        <div class="tl-time">JDK 6/7</div>
-        <div class="tl-body">
-          <b>永久代 PermGen</b>
-          <span>方法区位于堆内永久代；-XX:PermSize / -XX:MaxPermSize 控制。字符串常量池也在永久代，是「常量池 OOM」重灾区。</span>
-        </div>
-      </div>
-      <div class="tl-item">
-        <div class="tl-time">JDK 8</div>
-        <div class="tl-body">
-          <b>元空间 Metaspace 取代永久代</b>
-          <span>JEP 122：方法区移入本地内存，默认无上限（可设 -XX:MaxMetaspaceSize）；字符串常量池与静态变量移入 Java 堆。OOM 类型从 PermGen space 变为 Metaspace。</span>
-        </div>
-      </div>
-      <div class="tl-item">
-        <div class="tl-time">JDK 9+</div>
-        <div class="tl-body">
-          <b>模块化与治理完善</b>
-          <span>JPMS 模块描述符进入常量池解析；Metaspace 内部按 ClassLoaderData 分块管理、支持卸载统计；G1 默认收集器下的类卸载由并发周期承担。</span>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ===== ④ 字符串常量池与直接内存 ===== -->
-<section class="domain c6" id="d4">
-  <div class="domain-head">
-    <span class="domain-no">04</span>
-    <span class="domain-title">字符串常量池与直接内存</span>
-    <span class="domain-en">STRING POOL &amp; DIRECT MEMORY</span>
-  </div>
-  <p class="domain-desc">一句话理解：<b>字符串常量池是堆里的「字符串去重仓库」，直接内存是堆外的「零拷贝快递通道」</b>。一个管命中、一个管性能，都是高频踩坑点。</p>
-  <div class="cards">
-    <div class="card">
-      <div class="k">字符串常量池</div>
-      <div class="s"><span class="path">java.lang.String</span> · <span class="path">String.intern()</span></div>
-      <div class="d">JDK 7 起位于堆中，存字面量（""）与 intern() 结果。判断「==」先问：是池里的同一对象吗？频繁 intern 大字符串会撑大堆。</div>
-    </div>
-    <div class="card">
-      <div class="k">编译期与运行期</div>
-      <div class="s"><span class="path">javac 常量折叠 · StringBuilder 拼接</span></div>
-      <div class="d">"a"+"b" 编译期折叠为 "ab" 进池；含变量的拼接走 StringBuilder/indy（JDK 9+ 字符串拼接指令）——解释「为什么字符串拼接别用 +」的底层原因。</div>
+      <div class="k">线程共享两件套</div>
+      <div class="s"><span class="path">堆 · 方法区</span></div>
+      <div class="d">虚拟机启动时创建，所有线程可见。堆是 GC 主场；方法区存放类元数据与常量池，是逻辑上的共享区域。</div>
     </div>
     <div class="card">
       <div class="k">直接内存</div>
-      <div class="s"><span class="path">java.nio.ByteBuffer.allocateDirect</span></div>
-      <div class="d">堆外内存，读写少一次堆内拷贝，Netty 与 NIO 零拷贝的基础。-XX:MaxDirectMemorySize 限制总量（默认≈-Xmx），Full GC 时回收 DirectByteBuffer。</div>
+      <div class="s"><span class="path">本地内存 · 非规范定义</span></div>
+      <div class="d">不属于《Java 虚拟机规范》定义的运行时数据区，也不应被当作「线程共享运行时数据区」；但它被频繁使用，也可能 OOM。</div>
     </div>
     <div class="card">
-      <div class="k">堆外泄漏特征</div>
-      <div class="s"><span class="path">OOM: Direct buffer memory</span></div>
-      <div class="d">堆看起来很小、进程 RSS 却很大，或反复 Full GC 仍涨——多半是直接内存泄漏（DirectByteBuffer 未被 GC 或未调用 cleaner）。用 -XX:MaxDirectMemorySize 收口排查。</div>
+      <div class="k">规范很宽松</div>
+      <div class="s"><span class="path">堆可连续可不连续 · 可固定可扩展</span></div>
+      <div class="d">以堆为例：堆可以是连续空间也可以不连续，大小可固定也可按需扩展；虚拟机实现可用任何 GC 算法，甚至完全不回收。</div>
+    </div>
+    <div class="card">
+      <div class="k">逻辑 vs 物理概念</div>
+      <div class="s"><span class="path">运行时常量池/方法区/字符串常量池 = 抽象</span></div>
+      <div class="d">「运行时常量池、方法区、字符串常量池是不随虚拟机实现而改变的逻辑概念；Metaspace、Heap 是与具体实现相关的物理概念」——周志明。</div>
+    </div>
+    <div class="card">
+      <div class="k">两次关键迁移</div>
+      <div class="s"><span class="path">JDK 7 字符串池/静态变量移堆 · JDK 8 永久代→元空间</span></div>
+      <div class="d">JDK 7 把字符串常量池与类静态变量从永久代移入 Java 堆；JDK 8 彻底废弃永久代，方法区实现改为本地内存中的元空间。</div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h4>专题图：JDK 7 与 JDK 8 的数据区变化</h4>
+    <p class="cap">两次迁移的动因不同：字符串池移堆是为了让 GC 更及时回收字符串；永久代→元空间是为了摆脱 MaxPermSize 上限并简化 GC。</p>
+    <svg viewBox="0 0 720 260" role="img" aria-label="JDK7 与 JDK8 数据区对比">
+      <!-- 左 JDK7 -->
+      <text x="200" y="36" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">JDK 7</text>
+      <rect x="30" y="52" width="340" height="180" rx="8" fill="#141B24" stroke="rgba(255,255,255,.18)" stroke-width="1.2"/>
+      <rect x="46" y="70" width="308" height="52" rx="6" fill="rgba(185,140,232,.10)" stroke="rgba(185,140,232,.4)"/>
+      <text x="200" y="92" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">永久代 PermGen（方法区实现）</text>
+      <text x="200" y="110" text-anchor="middle" fill="#9AA5B1" font-size="10.5">类型信息 · 运行时常量池 · JIT Code Cache</text>
+      <rect x="46" y="132" width="148" height="52" rx="6" fill="rgba(232,168,124,.10)" stroke="rgba(232,168,124,.45)"/>
+      <text x="120" y="152" text-anchor="middle" fill="#E7EAEE" font-size="11.5">堆</text>
+      <text x="120" y="170" text-anchor="middle" fill="#9AA5B1" font-size="10">对象实例 · 数组</text>
+      <rect x="206" y="132" width="148" height="52" rx="6" fill="rgba(111,199,222,.10)" stroke="rgba(111,199,222,.45)"/>
+      <text x="280" y="152" text-anchor="middle" fill="#E7EAEE" font-size="11.5">堆：字符串常量池</text>
+      <text x="280" y="170" text-anchor="middle" fill="#9AA5B1" font-size="10">静态变量（JDK7 迁入）</text>
+      <text x="200" y="212" text-anchor="middle" fill="#9AA5B1" font-size="10.5">永久代受 -XX:MaxPermSize 限制</text>
+
+      <!-- 右 JDK8 -->
+      <text x="560" y="36" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">JDK 8</text>
+      <rect x="380" y="52" width="340" height="180" rx="8" fill="#141B24" stroke="rgba(111,199,222,.35)" stroke-width="1.2"/>
+      <rect x="396" y="70" width="148" height="52" rx="6" fill="rgba(232,168,124,.10)" stroke="rgba(232,168,124,.45)"/>
+      <text x="470" y="92" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">堆</text>
+      <text x="470" y="110" text-anchor="middle" fill="#9AA5B1" font-size="10">对象 · 字符串常量池</text>
+      <rect x="556" y="70" width="148" height="52" rx="6" fill="rgba(232,138,165,.10)" stroke="rgba(232,138,165,.45)"/>
+      <text x="630" y="92" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">元空间（本地内存）</text>
+      <text x="630" y="110" text-anchor="middle" fill="#9AA5B1" font-size="10">类型信息 · 运行时常量池</text>
+      <rect x="396" y="132" width="308" height="52" rx="6" fill="rgba(255,255,255,.03)" stroke="rgba(255,255,255,.16)"/>
+      <text x="550" y="152" text-anchor="middle" fill="#E7EAEE" font-size="11.5">本地内存：直接内存 · JIT Code Cache</text>
+      <text x="550" y="170" text-anchor="middle" fill="#9AA5B1" font-size="10">堆外分配 · 独立于堆</text>
+      <text x="550" y="212" text-anchor="middle" fill="#9AA5B1" font-size="10.5">-XX:MaxMetaspaceSize 可选限制</text>
+    </svg>
+  </div>
+</section>
+
+<!-- ===== ② 程序计数器 ===== -->
+<section class="domain c2" id="d2">
+  <div class="domain-head">
+    <span class="domain-no">02</span>
+    <span class="domain-title">程序计数器</span>
+    <span class="domain-en">PROGRAM COUNTER REGISTER</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>PC 是当前线程正在执行的字节码的「行号指示器」</b>——解释器靠它选下一条指令，线程切换靠它恢复位置；它是规范里唯一不会 OOM 的区域。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">两个核心作用</div>
+      <div class="s"><span class="path">流程控制 · 线程恢复</span></div>
+      <div class="d">① 字节码解释器通过改变 PC 依次读取指令，实现顺序执行、选择、循环、异常处理；② 多线程下记录当前执行位置，线程切换回来后知道上次跑到哪。</div>
+    </div>
+    <div class="card">
+      <div class="k">线程私有</div>
+      <div class="s"><span class="path">每条线程一个 · 互不影响</span></div>
+      <div class="d">为了线程切换后能恢复正确执行位置，每条线程都需要独立的计数器，独立存储——「线程私有」这个名字的由来。</div>
+    </div>
+    <div class="card">
+      <div class="k">执行 native 方法时</div>
+      <div class="s"><span class="path">PC 值为 Undefined（未定义）</span></div>
+      <div class="d">执行 Java 方法时 PC 记录当前 JVM 字节码指令地址；执行 native 方法时执行的不是字节码，PC 无意义，规范定义为 Undefined。</div>
+    </div>
+    <div class="card">
+      <div class="k">生命周期</div>
+      <div class="s"><span class="path">随线程创建 · 随线程结束销毁</span></div>
+      <div class="d">与线程完全同步：线程创建则创建，线程结束则销毁——它是运行时数据区里最小的一块内存。</div>
+    </div>
+    <div class="card">
+      <div class="k">唯一无 OOM 的区域</div>
+      <div class="s"><span class="path">规范未规定任何 OutOfMemoryError 情况</span></div>
+      <div class="d">《Java 虚拟机规范》是唯一没有为 PC 规定 OOM 情况的内存区域；规范只规定了结论，未要求所有实现采用某种固定大小的表示。</div>
+    </div>
+    <div class="card">
+      <div class="k">与解释执行的关系</div>
+      <div class="s"><span class="path">对照 execution-engine.html 的操作数栈执行</span></div>
+      <div class="d">执行引擎专题里「取指→译码→执行」循环的第一步「取指」，读的就是 PC 指向的字节码；两者配合看更完整。</div>
     </div>
   </div>
 </section>
 
-<!-- ===== ⑤ 异常与参数 ===== -->
-<section class="domain c7" id="d5">
+<!-- ===== ③ 虚拟机栈 ===== -->
+<section class="domain c2" id="d3">
   <div class="domain-head">
-    <span class="domain-no">05</span>
-    <span class="domain-title">异常与参数速查</span>
-    <span class="domain-en">EXCEPTIONS &amp; PARAMETERS</span>
+    <span class="domain-no">03</span>
+    <span class="domain-title">虚拟机栈与本地方法栈</span>
+    <span class="domain-en">JAVA VIRTUAL MACHINE STACK</span>
   </div>
-  <p class="domain-desc">一句话理解：<b>每个区域都有对应的「装满了」的报错，和对应的控制参数</b>。看到异常先定位区域，再查参数与排查手段——这是排查的第一步。</p>
+  <p class="domain-desc">一句话理解：<b>栈 = 栈帧的堆叠：每次方法调用压入一个栈帧，方法结束（正常或异常）就弹出</b>。栈帧里装着局部变量表、操作数栈、动态链接与方法返回地址四件套。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">线程私有 · 生命周期同线程</div>
+      <div class="s"><span class="path">随线程创建而创建 · 随线程死亡而死亡</span></div>
+      <div class="d">除 native 方法调用走本地方法栈外，所有 Java 方法调用都通过栈实现（与程序计数器等区域配合）。栈是运行时数据区里当之无愧的核心。</div>
+    </div>
+    <div class="card">
+      <div class="k">栈帧四件套</div>
+      <div class="s"><span class="path">局部变量表 · 操作数栈 · 动态链接 · 返回地址</span></div>
+      <div class="d">每次方法调用压入一个栈帧；方法结束后栈帧弹出。栈与数据结构中的栈一样：先进后出，只支持入栈与出栈两种操作。</div>
+    </div>
+    <div class="card">
+      <div class="k">局部变量表</div>
+      <div class="s"><span class="path">boolean/byte/char/short/int/float/long/double + reference</span></div>
+      <div class="d">存放编译期可知的基本类型与对象引用（reference 可能是指向对象起始地址的指针，也可能是句柄或其他位置）。</div>
+    </div>
+    <div class="card">
+      <div class="k">操作数栈</div>
+      <div class="s"><span class="path">方法调用的中转站</span></div>
+      <div class="d">存放方法执行过程中产生的中间计算结果与临时变量；字节码指令从局部变量表取操作数、算完再写回，详见 execution-engine 的操作数栈执行示意。</div>
+    </div>
+    <div class="card">
+      <div class="k">动态链接</div>
+      <div class="s"><span class="path">指向运行时常量池的方法引用</span></div>
+      <div class="d">每个栈帧持有指向当前方法所属类型运行时常量池的引用，把方法代码中的符号引用转换为直接引用、把变量访问转换为对应偏移；解析未定符号时可能触发类加载。</div>
+    </div>
+    <div class="card">
+      <div class="k">方法返回地址</div>
+      <div class="s"><span class="path">正常返回 return · 异常返回（未捕获）</span></div>
+      <div class="d">两种返回都会导致栈帧弹出：栈帧随方法调用创建、随方法结束销毁，无论正常完成还是异常完成都算方法结束。</div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h4>专题图：栈帧结构与动态链接</h4>
+    <p class="cap">栈帧四件套中，动态链接指向方法区的运行时常量池——方法调用把符号引用解析成直接引用的桥梁（注意动态分派 ≠ 动态链接）。</p>
+    <svg viewBox="0 0 720 300" role="img" aria-label="栈帧结构图">
+      <!-- 栈 -->
+      <rect x="40" y="60" width="240" height="200" rx="8" fill="#141B24" stroke="rgba(127,180,232,.5)" stroke-width="1.4"/>
+      <text x="160" y="86" text-anchor="middle" fill="#E7EAEE" font-size="13" font-weight="600">虚拟机栈（后进先出）</text>
+      <!-- 栈帧 -->
+      <rect x="56" y="100" width="208" height="52" rx="6" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.14)"/>
+      <text x="160" y="124" text-anchor="middle" fill="#E7EAEE" font-size="11.5" font-weight="600">栈帧 Frame（方法 A）</text>
+      <text x="160" y="142" text-anchor="middle" fill="#9AA5B1" font-size="10">当前执行</text>
+      <rect x="56" y="160" width="208" height="52" rx="6" fill="rgba(255,255,255,.02)" stroke="rgba(255,255,255,.10)"/>
+      <text x="160" y="184" text-anchor="middle" fill="#9AA5B1" font-size="11.5">栈帧 Frame（方法 B）</text>
+      <text x="160" y="202" text-anchor="middle" fill="#9AA5B1" font-size="10">调用者</text>
+      <text x="160" y="248" text-anchor="middle" fill="#9AA5B1" font-size="10.5">…更深调用栈</text>
+
+      <!-- 栈帧内部 -->
+      <rect x="330" y="60" width="240" height="200" rx="8" fill="#141B24" stroke="rgba(127,180,232,.35)" stroke-width="1.2"/>
+      <text x="450" y="86" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">栈帧内部（方法 A）</text>
+      <rect x="346" y="98" width="208" height="30" rx="5" fill="rgba(227,210,122,.08)" stroke="rgba(227,210,122,.35)"/>
+      <text x="450" y="118" text-anchor="middle" fill="#F0E6B8" font-size="11">局部变量表（基本类型 + reference）</text>
+      <rect x="346" y="136" width="208" height="30" rx="5" fill="rgba(110,203,168,.08)" stroke="rgba(110,203,168,.35)"/>
+      <text x="450" y="156" text-anchor="middle" fill="#BFE8D5" font-size="11">操作数栈（中间结果）</text>
+      <rect x="346" y="174" width="208" height="30" rx="5" fill="rgba(185,140,232,.10)" stroke="rgba(185,140,232,.4)"/>
+      <text x="450" y="194" text-anchor="middle" fill="#DCC9F2" font-size="11">动态链接 → 运行时常量池</text>
+      <rect x="346" y="212" width="208" height="30" rx="5" fill="rgba(232,138,165,.08)" stroke="rgba(232,138,165,.35)"/>
+      <text x="450" y="232" text-anchor="middle" fill="#F0C4D4" font-size="11">方法返回地址</text>
+
+      <!-- 方法区 -->
+      <rect x="620" y="60" width="80" height="200" rx="8" fill="#141B24" stroke="rgba(185,140,232,.5)" stroke-width="1.4"/>
+      <text x="660" y="86" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">方法区</text>
+      <text x="660" y="120" text-anchor="middle" fill="#DCC9F2" font-size="10">运行时常量池</text>
+      <text x="660" y="140" text-anchor="middle" fill="#9AA5B1" font-size="9.5">符号引用</text>
+      <text x="660" y="156" text-anchor="middle" fill="#9AA5B1" font-size="9.5">→ 直接引用</text>
+      <text x="660" y="186" text-anchor="middle" fill="#9AA5B1" font-size="9.5">类型信息</text>
+      <text x="660" y="206" text-anchor="middle" fill="#9AA5B1" font-size="9.5">方法表</text>
+
+      <g stroke="rgba(255,255,255,.4)" stroke-width="1.4" fill="none">
+        <path d="M 264 190 C 300 190 300 190 330 190" marker-end="url(#arr2)"/>
+        <path d="M 554 189 C 584 189 584 140 618 140" marker-end="url(#arr2)"/>
+      </g>
+    </svg>
+  </div>
+
   <div class="tbl-wrap">
     <table class="tbl">
       <colgroup>
-        <col class="th-exception"><col class="th-region"><col class="th-cause"><col class="th-param"><col class="th-fix">
+        <col class="th-dim"><col class="th-a"><col class="th-b"><col class="th-note">
       </colgroup>
       <thead>
         <tr>
-          <th>异常</th>
-          <th>区域</th>
-          <th>触发场景</th>
-          <th>相关参数</th>
-          <th>排查方向</th>
+          <th>错误</th>
+          <th>触发条件</th>
+          <th>HotSpot 实际行为</th>
+          <th>复现手段</th>
         </tr>
       </thead>
       <tbody>
         <tr>
           <td><code>StackOverflowError</code></td>
-          <td>虚拟机栈</td>
-          <td>方法递归过深、无限递归，栈深度超限</td>
-          <td><code>-Xss</code></td>
-          <td>jstack 看栈顶方法，查递归/深调用链</td>
+          <td>线程请求的栈深度超过 JVM 允许的最大深度</td>
+          <td>无限递归最常见；线程请求栈空间成功后才不会因扩展失败 OOM</td>
+          <td>无出口递归 + <code>-Xss</code> 调小</td>
         </tr>
         <tr>
-          <td><code>OOM: Java heap space</code></td>
-          <td>堆</td>
-          <td>对象分配不下：泄漏或峰值内存超 -Xmx</td>
-          <td><code>-Xms / -Xmx</code></td>
-          <td>HeapDump + MAT 分析支配树、引用链</td>
+          <td><code>OutOfMemoryError</code></td>
+          <td>栈容量可动态扩展时，扩展申请不到足够内存</td>
+          <td>HotSpot 栈容量不可动态扩展；但线程创建时申请栈空间失败仍会 OOM</td>
+          <td>无限创建线程（-Xss 调大 + 耗尽内存）</td>
         </tr>
         <tr>
-          <td><code>OOM: Metaspace</code></td>
-          <td>方法区</td>
-          <td>类元数据耗尽：动态生成类、热部署加载器泄漏</td>
-          <td><code>-XX:MetaspaceSize</code><br><code>-XX:MaxMetaspaceSize</code></td>
-          <td>jcmd GC.class_stats 看类占用，查加载器</td>
-        </tr>
-        <tr>
-          <td><code>OOM: Direct buffer memory</code></td>
-          <td>直接内存</td>
-          <td>DirectByteBuffer 堆积、未及时回收</td>
-          <td><code>-XX:MaxDirectMemorySize</code></td>
-          <td>统计 DirectBuffer 数量，查未释放的 NIO 缓存</td>
-        </tr>
-        <tr>
-          <td><code>OOM: GC overhead limit exceeded</code></td>
-          <td>堆</td>
-          <td>GC 回收效率过低（98% 时间回收 &lt;2% 空间）</td>
-          <td><code>-XX:+UseG1GC</code> 等收集器</td>
-          <td>本质是堆太小/泄漏，先转储再调参</td>
+          <td>本地方法栈</td>
+          <td>为 native 方法服务</td>
+          <td>HotSpot 中与虚拟机栈合二为一；同样可能出现两种错误</td>
+          <td>JNI 调用层过深</td>
         </tr>
       </tbody>
     </table>
   </div>
 </section>
 
-<!-- ===== ⑥ 验证实验 ===== -->
-<section class="domain c2" id="d6">
+<!-- ===== ④ 堆 ===== -->
+<section class="domain c1" id="d4">
+  <div class="domain-head">
+    <span class="domain-no">04</span>
+    <span class="domain-title">Java 堆</span>
+    <span class="domain-en">JAVA HEAP</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>堆是 JVM 管理的最大一块内存，几乎是所有对象与数组的分配地</b>；按「对象活多久」分成新生代与老年代，新生代里再分 Eden 与两个 Survivor。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">最大的一块 · 线程共享</div>
+      <div class="s"><span class="path">虚拟机启动时创建 · GC 堆</span></div>
+      <div class="d">JVM 所管理内存中最大的一块，唯一目的就是存放对象实例，几乎所有对象实例和数组都在这里分配——因此也叫 GC 堆。</div>
+    </div>
+    <div class="card">
+      <div class="k">「几乎」的含义</div>
+      <div class="s"><span class="path">逃逸分析 · 标量替换</span></div>
+      <div class="d">JIT 可基于逃逸分析做标量替换，消除部分对象的实际分配；但不能简单表述为「对象直接在 Java 虚拟机栈上分配」。</div>
+    </div>
+    <div class="card">
+      <div class="k">分代结构</div>
+      <div class="s"><span class="path">新生代：Eden + S0 + S1 · 老年代：Tenured</span></div>
+      <div class="d">分代是为了更好地回收与更快地分配：新对象进 Eden，Minor GC 后存活对象进 Survivor 并年龄 +1，达到阈值晋升老年代。</div>
+    </div>
+    <div class="card">
+      <div class="k">对象年龄为何 0~15</div>
+      <div class="s"><span class="path">Mark Word 中 age 字段仅 4 位</span></div>
+      <div class="d">年龄记录在对象头标记字段里，4 位二进制最大 1111=15，因此 -XX:MaxTenuringThreshold 上限为 15；JDK 21 上部分收集器阈值已变化。</div>
+    </div>
+    <div class="card">
+      <div class="k">动态年龄计算</div>
+      <div class="s"><span class="path">ageTable::compute_tenuring_threshold</span></div>
+      <div class="d">按年龄从小到大累加对象大小，累加到超过 Survivor 一半（TargetSurvivorRatio 默认 50%）时，取该年龄与 MaxTenuringThreshold 较小者作为新晋升阈值。</div>
+    </div>
+    <div class="card">
+      <div class="k">堆 OOM 的两种形态</div>
+      <div class="s"><span class="path">GC Overhead Limit Exceeded · Java heap space</span></div>
+      <div class="d">① JVM 花太多时间 GC 却只回收很少空间；② 创建新对象时堆中空间不足。最大堆由 -Xmx 配置，受物理内存限制。</div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h4>专题图：分代结构与对象晋升</h4>
+    <p class="cap">对象默认先在 Eden 分配；Minor GC 存活进 S0/S1 且年龄 +1（初始为 1），达到动态阈值后晋升老年代；大对象可能直接进老年代。</p>
+    <svg viewBox="0 0 720 280" role="img" aria-label="堆分代晋升图">
+      <!-- 新生代 -->
+      <rect x="30" y="60" width="420" height="180" rx="8" fill="#141B24" stroke="rgba(232,168,124,.5)" stroke-width="1.4"/>
+      <text x="240" y="86" text-anchor="middle" fill="#E8A87C" font-size="13" font-weight="600">新生代（复制算法）</text>
+      <rect x="46" y="100" width="180" height="120" rx="6" fill="rgba(232,168,124,.10)" stroke="rgba(232,168,124,.45)"/>
+      <text x="136" y="128" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">Eden（8）</text>
+      <text x="136" y="150" text-anchor="middle" fill="#9AA5B1" font-size="10.5">新对象分配地 · TLAB</text>
+      <text x="136" y="170" text-anchor="middle" fill="#9AA5B1" font-size="10.5">GC 后存活 → Survivor</text>
+      <text x="136" y="196" text-anchor="middle" fill="#9AA5B1" font-size="10.5">年龄 → 1</text>
+      <rect x="240" y="100" width="88" height="120" rx="6" fill="rgba(110,203,168,.08)" stroke="rgba(110,203,168,.4)"/>
+      <text x="284" y="150" text-anchor="middle" fill="#BFE8D5" font-size="12" font-weight="600">S0（1）</text>
+      <text x="284" y="196" text-anchor="middle" fill="#9AA5B1" font-size="10.5">年龄+1</text>
+      <rect x="342" y="100" width="88" height="120" rx="6" fill="rgba(110,203,168,.08)" stroke="rgba(110,203,168,.4)"/>
+      <text x="386" y="150" text-anchor="middle" fill="#BFE8D5" font-size="12" font-weight="600">S1（1）</text>
+      <text x="386" y="196" text-anchor="middle" fill="#9AA5B1" font-size="10.5">存活 → 晋升</text>
+
+      <!-- 老年代 -->
+      <rect x="480" y="60" width="210" height="180" rx="8" fill="#141B24" stroke="rgba(127,180,232,.5)" stroke-width="1.4"/>
+      <text x="585" y="86" text-anchor="middle" fill="#7FB4E8" font-size="13" font-weight="600">老年代（标记-整理）</text>
+      <rect x="496" y="100" width="178" height="120" rx="6" fill="rgba(127,180,232,.10)" stroke="rgba(127,180,232,.45)"/>
+      <text x="585" y="128" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">Tenured</text>
+      <text x="585" y="152" text-anchor="middle" fill="#9AA5B1" font-size="10.5">年龄达标或大对象直接进</text>
+      <text x="585" y="172" text-anchor="middle" fill="#9AA5B1" font-size="10.5">Full GC 主要战场</text>
+      <text x="585" y="196" text-anchor="middle" fill="#9AA5B1" font-size="10.5">OOM 高频区</text>
+
+      <g stroke="rgba(255,255,255,.4)" stroke-width="1.5" fill="none">
+        <path d="M 226 160 C 236 160 236 160 238 160" marker-end="url(#arr2)"/>
+        <path d="M 284 220 C 284 240 284 240 284 244" marker-end="url(#arr2)"/>
+        <path d="M 386 160 C 436 160 436 160 494 160" marker-end="url(#arr2)"/>
+        <path d="M 136 220 C 136 244 136 244 500 244" marker-end="url(#arr2)"/>
+      </g>
+      <text x="284" y="260" text-anchor="middle" fill="#9AA5B1" font-size="10.5">Eden→S 年龄=1；每轮 Minor GC 年龄+1</text>
+    </svg>
+  </div>
+</section>
+
+<!-- ===== ⑤ 方法区 ===== -->
+<section class="domain c4" id="d5">
+  <div class="domain-head">
+    <span class="domain-no">05</span>
+    <span class="domain-title">方法区 / 永久代 / 元空间</span>
+    <span class="domain-en">METHOD AREA</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>方法区是「规范概念」，永久代和元空间是它的两种 HotSpot 实现</b>——关系像接口与实现类；JDK 8 起实现换成了本地内存中的元空间。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">存储什么</div>
+      <div class="s"><span class="path">类元数据 · 方法字节码 · 运行时常量池</span></div>
+      <div class="d">类名、父类、接口、访问修饰符、字段与方法详情、每个方法的原始字节码指令序列、以及每个类独有的运行时常量池。</div>
+    </div>
+    <div class="card">
+      <div class="k">不在方法区的三类数据</div>
+      <div class="s"><span class="path">静态变量 · 字符串常量池 · JIT Code Cache</span></div>
+      <div class="d">静态变量与 java.lang.Class 对象一起在堆（JDK 7 起）；字符串常量池也在堆；JIT 编译后的机器码存放在独立 Code Cache 区域。</div>
+    </div>
+    <div class="card">
+      <div class="k">规范 vs 实现</div>
+      <div class="s"><span class="path">方法区 = 抽象规范 · PermGen/Metaspace = 具体实现</span></div>
+      <div class="d">《Java 虚拟机规范》只规定方法区的概念与作用，实现方式由虚拟机自行决定——类似 Java 中接口与类的关系。</div>
+    </div>
+    <div class="card">
+      <div class="k">为什么弃永久代</div>
+      <div class="s"><span class="path">上限受限 · GC 复杂 · 合并 JRockit</span></div>
+      <div class="d">① 永久代受 MaxPermSize 限制，元空间用本地内存可加载更多类；② 合并 JRockit 时对方没有永久代概念；③ 永久代 GC 复杂度高、回收效率偏低。</div>
+    </div>
+    <div class="card">
+      <div class="k">元空间参数</div>
+      <div class="s"><span class="path">-XX:MetaspaceSize 阈值 · -XX:MaxMetaspaceSize 上限</span></div>
+      <div class="d">MetaspaceSize 不是初始容量，而是触发元数据 GC 的初始高水位阈值，之后 JVM 会动态调整；不设 MaxMetaspaceSize 则只受本地内存限制。</div>
+    </div>
+    <div class="card">
+      <div class="k">元空间 OOM</div>
+      <div class="s"><span class="path">java.lang.OutOfMemoryError: Metaspace</span></div>
+      <div class="d">动态生成类（CGLIB/反射代理/热部署）最常见；可用 -XX:MaxMetaspaceSize 限制，也可用 NMT 定位谁在增长类元数据。</div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h4>时间轴：永久代如何被元空间取代</h4>
+    <p class="cap">HotSpot 在 JDK 6 已有放弃永久代的计划；JDK 7 先把字符串常量池与静态变量移出；JDK 8 彻底废弃，剩余内容（主要是类型信息）全部移入元空间。</p>
+    <div class="tl">
+      <div class="tl-item">
+        <div class="tl-time">JDK 6</div>
+        <div class="tl-body">
+          <b>计划期</b>
+          <span>因各方实现差异面临困难，HotSpot 团队考虑放弃永久代、改用本地内存实现方法区。</span>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-time">JDK 7</div>
+        <div class="tl-body">
+          <b>第一步迁移</b>
+          <span>字符串常量池与类静态变量从永久代移入 Java 堆；永久代里只剩类型信息等类元数据。</span>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-time">JDK 8</div>
+        <div class="tl-body">
+          <b>彻底废弃永久代</b>
+          <span>改用与 JRockit 一致的本地内存实现元空间，剩余类型信息全部移入；-XX:PermSize/-XX:MaxPermSize 失效。</span>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-time">JDK 14+</div>
+        <div class="tl-body">
+          <b>移除废弃参数</b>
+          <span>PermSize/MaxPermSize 等参数最终从 HotSpot 移除；方法区 = 元空间成为唯一实现（直到今天）。</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑥ 常量池 ===== -->
+<section class="domain c5" id="d6">
   <div class="domain-head">
     <span class="domain-no">06</span>
-    <span class="domain-title">验证实验：用工具看内存</span>
+    <span class="domain-title">运行时常量池与字符串常量池</span>
+    <span class="domain-en">CONSTANT POOLS</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>Class 文件里有一张常量池表（字面量 + 符号引用），类加载后搬进方法区的运行时常量池</b>；字符串常量池是另一回事——JDK 7 起在堆里，专门缓存字符串避免重复创建。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">常量池表 → 运行时常量池</div>
+      <div class="s"><span class="path">类加载后存放于方法区</span></div>
+      <div class="d">Class 文件除版本、字段、方法、接口描述外，还有存放字面量与符号引用的常量池表；类加载后整体搬入方法区的运行时常量池。</div>
+    </div>
+    <div class="card">
+      <div class="k">字面量 vs 符号引用</div>
+      <div class="s"><span class="path">Literal · Symbolic Reference</span></div>
+      <div class="d">字面量：整数、浮点数、字符串字面量等源代码固定值；符号引用：类、字段、方法、接口方法的符号引用。</div>
+    </div>
+    <div class="card">
+      <div class="k">符号引用 vs 直接引用</div>
+      <div class="s"><span class="path">符号引用与内存布局无关 · 直接引用指向目标</span></div>
+      <div class="d">符号引用用字面量描述目标、不依赖实现布局；直接引用是指针/相对偏移/句柄，与具体虚拟机内存布局直接相关，目标必定已加载。</div>
+    </div>
+    <div class="card">
+      <div class="k">字符串常量池</div>
+      <div class="s"><span class="path">避免字符串重复创建 · intern</span></div>
+      <div class="d">针对 String 专门开辟的区域：字面量 "ab" 先查池，没有则创建放入，再返回引用——`aa==bb` 为 true；new String 则每次新建对象。</div>
+    </div>
+    <div class="card">
+      <div class="k">StringTable 实现</div>
+      <div class="s"><span class="path">src/hotspot/share/classfile/stringTable.cpp</span></div>
+      <div class="d">现代 HotSpot 用并发哈希表 + 弱句柄保存堆中的字符串对象，支持扩容、重哈希、清理失效条目；-XX:StringTableSize 设初始桶数。</div>
+    </div>
+    <div class="card">
+      <div class="k">为何 JDK 7 移入堆</div>
+      <div class="s"><span class="path">永久代 GC 回收效率太低</span></div>
+      <div class="d">永久代的字符串只在整堆收集（Full GC）时才被回收；程序中有大量字符串等待回收，放进堆能让 Minor GC 及时处理。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑦ 直接内存 ===== -->
+<section class="domain c6" id="d7">
+  <div class="domain-head">
+    <span class="domain-no">07</span>
+    <span class="domain-title">直接内存与堆外内存</span>
+    <span class="domain-en">DIRECT MEMORY</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>直接内存在本地内存中分配，不是规范定义的运行时数据区</b>；NIO 用它减少一次复制，但它的上限受本机总内存与寻址空间约束，照样会 OOM。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">NIO 与直接缓冲区</div>
+      <div class="s"><span class="path">Channel + Buffer · DirectByteBuffer</span></div>
+      <div class="d">JDK 1.4 引入 NIO：直接字节缓冲区在 Java 堆外分配，通过堆中的 DirectByteBuffer 对象操作；JVM 尽力直接在其上执行本地 I/O，减少中间缓冲复制。</div>
+    </div>
+    <div class="card">
+      <div class="k">NIO ≠ 非阻塞</div>
+      <div class="s"><span class="path">只有 Selector 等部分提供非阻塞 I/O</span></div>
+      <div class="d">不能把整个 NIO 展开为 Non-Blocking I/O——只有可选择通道与 Selector 等部分提供非阻塞能力，其余仍是阻塞 I/O。</div>
+    </div>
+    <div class="card">
+      <div class="k">限制与参数</div>
+      <div class="s"><span class="path">-XX:MaxDirectMemorySize</span></div>
+      <div class="d">直接内存不计入 Java 堆，但仍受本机总内存与处理器寻址空间限制；NIO 直接缓冲区可通过该参数限制总分配量。</div>
+    </div>
+    <div class="card">
+      <div class="k">堆外内存 ≠ 直接内存</div>
+      <div class="s"><span class="path">堆外是统称 · 直接内存是其中一种</span></div>
+      <div class="d">堆外内存是「Java 堆之外内存」的统称，底层通常用本地内存；是否受 JVM/JDK 管理取决于分配方式，把两者直接划等号并不准确。</div>
+    </div>
+    <div class="card">
+      <div class="k">清理机制</div>
+      <div class="s"><span class="path">DirectByteBuffer 不可达 → Cleaner</span></div>
+      <div class="d">直接缓冲区的本地内存关联堆中对象，对象不可达后通过 Cleaner 机制参与清理；清理时机不受应用控制，需警惕本地内存泄漏与 OOM。</div>
+    </div>
+    <div class="card">
+      <div class="k">为什么用直接内存</div>
+      <div class="s"><span class="path">减少一次复制 · 减轻堆压力</span></div>
+      <div class="d">网络/文件读写可避免「堆内→堆外」的中间拷贝；大数据量 I/O 场景收益明显，但要为内存上限与回收时机买单。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ⑧ 对象探秘 ===== -->
+<section class="domain c1" id="d8">
+  <div class="domain-head">
+    <span class="domain-no">08</span>
+    <span class="domain-title">HotSpot 对象探秘</span>
+    <span class="domain-en">OBJECT CREATION &amp; LAYOUT</span>
+  </div>
+  <p class="domain-desc">一句话理解：<b>new 一个对象要过五道工序</b>——类加载检查 → 分配内存 → 初始化零值 → 设置对象头 → 执行 &lt;init&gt;；面试能默写这五步，就算吃透对象创建。</p>
+  <div class="fig">
+    <h4>专题图：对象创建五步流水线</h4>
+    <p class="cap">从 new 指令到可用对象：前四步是「虚拟机的视角」，第五步执行 <init> 后才是「Java 程序视角」的完整对象。</p>
+    <svg viewBox="0 0 720 190" role="img" aria-label="对象创建五步">
+      <g font-family="Noto Sans SC, sans-serif">
+        <rect x="20" y="40" width="124" height="110" rx="8" fill="#141B24" stroke="rgba(110,203,168,.45)" stroke-width="1.4"/>
+        <text x="82" y="66" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">① 类加载检查</text>
+        <text x="82" y="88" text-anchor="middle" fill="#9AA5B1" font-size="10">常量池定位符号引用</text>
+        <text x="82" y="106" text-anchor="middle" fill="#9AA5B1" font-size="10">检查是否已加载/解析</text>
+        <text x="82" y="124" text-anchor="middle" fill="#9AA5B1" font-size="10">未加载 → 类加载过程</text>
+        <text x="82" y="142" text-anchor="middle" fill="#9AA5B1" font-size="9.5">（见 class-loading.html）</text>
+
+        <rect x="164" y="40" width="124" height="110" rx="8" fill="#141B24" stroke="rgba(232,168,124,.45)" stroke-width="1.4"/>
+        <text x="226" y="66" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">② 分配内存</text>
+        <text x="226" y="88" text-anchor="middle" fill="#9AA5B1" font-size="10">指针碰撞（堆规整）</text>
+        <text x="226" y="106" text-anchor="middle" fill="#9AA5B1" font-size="10">空闲列表（堆不规整）</text>
+        <text x="226" y="124" text-anchor="middle" fill="#9AA5B1" font-size="10">并发：CAS / TLAB</text>
+        <text x="226" y="142" text-anchor="middle" fill="#9AA5B1" font-size="9.5">大小类加载后已确定</text>
+
+        <rect x="308" y="40" width="124" height="110" rx="8" fill="#141B24" stroke="rgba(127,180,232,.45)" stroke-width="1.4"/>
+        <text x="370" y="66" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">③ 初始化零值</text>
+        <text x="370" y="88" text-anchor="middle" fill="#9AA5B1" font-size="10">分配的内存全部置零</text>
+        <text x="370" y="106" text-anchor="middle" fill="#9AA5B1" font-size="10">不含对象头</text>
+        <text x="370" y="124" text-anchor="middle" fill="#9AA5B1" font-size="10">字段不赋值即可用</text>
+        <text x="370" y="142" text-anchor="middle" fill="#9AA5B1" font-size="9.5">零值 = 类型默认值</text>
+
+        <rect x="452" y="40" width="124" height="110" rx="8" fill="#141B24" stroke="rgba(185,140,232,.45)" stroke-width="1.4"/>
+        <text x="514" y="66" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">④ 设置对象头</text>
+        <text x="514" y="88" text-anchor="middle" fill="#9AA5B1" font-size="10">哪个类的实例</text>
+        <text x="514" y="106" text-anchor="middle" fill="#9AA5B1" font-size="10">哈希码 · GC 年龄</text>
+        <text x="514" y="124" text-anchor="middle" fill="#9AA5B1" font-size="10">锁状态等信息</text>
+        <text x="514" y="142" text-anchor="middle" fill="#9AA5B1" font-size="9.5">布局随 JDK 版本而异</text>
+
+        <rect x="596" y="40" width="124" height="110" rx="8" fill="#141B24" stroke="rgba(232,138,165,.45)" stroke-width="1.4"/>
+        <text x="658" y="66" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">⑤ 执行 &lt;init&gt;</text>
+        <text x="658" y="88" text-anchor="middle" fill="#9AA5B1" font-size="10">按程序员意愿初始化</text>
+        <text x="658" y="106" text-anchor="middle" fill="#9AA5B1" font-size="10">构造器/字段初值</text>
+        <text x="658" y="124" text-anchor="middle" fill="#9AA5B1" font-size="10">至此才是可用对象</text>
+        <text x="658" y="142" text-anchor="middle" fill="#9AA5B1" font-size="9.5">虚拟机视角早已产生</text>
+      </g>
+      <g stroke="rgba(255,255,255,.35)" stroke-width="1.4" fill="none">
+        <path d="M 144 95 L 162 95" marker-end="url(#arr2)"/>
+        <path d="M 288 95 L 306 95" marker-end="url(#arr2)"/>
+        <path d="M 432 95 L 450 95" marker-end="url(#arr2)"/>
+        <path d="M 576 95 L 594 95" marker-end="url(#arr2)"/>
+      </g>
+    </svg>
+  </div>
+
+  <div class="fig">
+    <h4>专题图：对象内存布局</h4>
+    <p class="cap">对象在堆中的布局 = 对象头（Mark Word + Klass 指针）+ 实例数据 + 对齐填充；启用压缩类指针时对象头常见 12 字节。</p>
+    <svg viewBox="0 0 720 200" role="img" aria-label="对象内存布局">
+      <rect x="40" y="40" width="180" height="120" rx="8" fill="#141B24" stroke="rgba(185,140,232,.5)" stroke-width="1.4"/>
+      <text x="130" y="66" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">对象头 Header</text>
+      <rect x="56" y="80" width="148" height="30" rx="5" fill="rgba(185,140,232,.12)" stroke="rgba(185,140,232,.45)"/>
+      <text x="130" y="100" text-anchor="middle" fill="#DCC9F2" font-size="11">Mark Word（哈希/年龄/锁）</text>
+      <rect x="56" y="118" width="148" height="30" rx="5" fill="rgba(127,180,232,.10)" stroke="rgba(127,180,232,.4)"/>
+      <text x="130" y="138" text-anchor="middle" fill="#C9DDF3" font-size="11">Klass 指针（→ 类元数据）</text>
+      <text x="130" y="166" text-anchor="middle" fill="#9AA5B1" font-size="9.5">压缩指针时常见 12 字节</text>
+
+      <rect x="260" y="40" width="200" height="120" rx="8" fill="#141B24" stroke="rgba(110,203,168,.5)" stroke-width="1.4"/>
+      <text x="360" y="66" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">实例数据</text>
+      <text x="360" y="92" text-anchor="middle" fill="#9AA5B1" font-size="11">真正存储的有效信息</text>
+      <text x="360" y="112" text-anchor="middle" fill="#9AA5B1" font-size="11">程序定义的字段内容</text>
+      <text x="360" y="132" text-anchor="middle" fill="#9AA5B1" font-size="11">按字段类型排列</text>
+      <text x="360" y="152" text-anchor="middle" fill="#9AA5B1" font-size="10">长/double 对齐规则</text>
+
+      <rect x="500" y="40" width="180" height="120" rx="8" fill="#141B24" stroke="rgba(232,138,165,.4)" stroke-width="1.2"/>
+      <text x="590" y="66" text-anchor="middle" fill="#E7EAEE" font-size="12" font-weight="600">对齐填充 Padding</text>
+      <text x="590" y="92" text-anchor="middle" fill="#9AA5B1" font-size="11">非必然存在 · 仅占位</text>
+      <text x="590" y="112" text-anchor="middle" fill="#9AA5B1" font-size="11">对象总大小补齐到</text>
+      <text x="590" y="132" text-anchor="middle" fill="#9AA5B1" font-size="11">对齐边界（默认 8 字节）</text>
+      <text x="590" y="152" text-anchor="middle" fill="#9AA5B1" font-size="10">-XX:ObjectAlignmentInBytes</text>
+    </svg>
+  </div>
+
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <colgroup>
+        <col class="th-dim"><col class="th-a"><col class="th-b"><col class="th-note">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>访问方式</th>
+          <th>原理</th>
+          <th>优点</th>
+          <th>HotSpot 的选择</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>句柄访问</code></td>
+          <td>堆中划句柄池，reference 存句柄地址；句柄内含实例数据与类型数据的地址</td>
+          <td>对象被移动时只需改句柄中的实例数据指针，reference 本身不变——GC 搬运对象友好</td>
+          <td>非主流</td>
+        </tr>
+        <tr>
+          <td><code>直接指针</code></td>
+          <td>reference 中直接存储对象地址，对象内再含指向类型数据的指针</td>
+          <td>速度快，省去一次指针定位的时间开销</td>
+          <td>HotSpot 主要使用</td>
+        </tr>
+        <tr>
+          <td><code>分配细节</code></td>
+          <td>指针碰撞（堆规整，Serial/ParNew）vs 空闲列表（堆不规整，CMS）</td>
+          <td>规整性由 GC 是否带压缩整理决定；复制算法也规整</td>
+          <td>并发用 CAS+重试 / TLAB</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== ⑨ 验证实验 ===== -->
+<section class="domain c7" id="d9">
+  <div class="domain-head">
+    <span class="domain-no">09</span>
+    <span class="domain-title">验证实验：亲手看内存</span>
     <span class="domain-en">VERIFY WITH TOOLS</span>
   </div>
-  <p class="domain-desc">一句话理解：<b>纸上谈兵不如一行命令</b>。下面的命令可以直接在本地 JDK 21 上跑，把「区域大小」变成真实数字。IDE 终端或命令行均可。</p>
+  <p class="domain-desc">一句话理解：<b>把每个区域「打爆」一次，错误信息就是最好的教材</b>——栈溢出、元空间溢出、字符串池 intern、直接内存限制，一次实验一个结论。</p>
   <div class="cmd-grid">
     <div class="cmd">
-      <div class="k"><span class="c">jcmd</span> · 查看 JVM 参数</div>
-      <pre>jcmd &lt;pid&gt; VM.flags
-jcmd &lt;pid&gt; VM.system_properties</pre>
-      <div class="d">确认 -Xmx、MetaspaceSize 等实际生效值（含默认值），是所有调优的第一步。先 <code>jps</code> 拿到 pid。</div>
+      <div class="k"><span class="c">栈溢出</span> · StackOverflowError</div>
+      <pre>java -Xss256k StackOverflowDemo
+# Exception in thread "main"
+# java.lang.StackOverflowError</pre>
+      <div class="d">无限递归（或递归过深）压爆栈；把 -Xss 从默认改到 256k，同一递归深度更早崩溃，直观感受「栈深度有限」。</div>
     </div>
     <div class="cmd">
-      <div class="k"><span class="c">jmap</span> · 堆概览与转储</div>
-      <pre>jmap -heap &lt;pid&gt;
-jmap -dump:format=b,file=heap.hprof &lt;pid&gt;</pre>
-      <div class="d">-heap 看新生代/老年代容量与使用率；-dump 做堆转储交给 MAT。生产环境优先用 <code>jcmd GC.heap_dump</code> 替代。</div>
+      <div class="k"><span class="c">元空间溢出</span> · Metaspace</div>
+      <pre>java -XX:MaxMetaspaceSize=16m \
+     -XX:MetaspaceSize=16m MetaSpaceDemo
+# java.lang.OutOfMemoryError: Metaspace</pre>
+      <div class="d">循环用 CGLIB/反射生成新类，把类元数据塞爆元空间；限制 MaxMetaspaceSize 后立刻复现 OOM，验证「元空间不是无限」。</div>
     </div>
     <div class="cmd">
-      <div class="k"><span class="c">jstat</span> · GC 与类加载统计</div>
-      <pre>jstat -gc &lt;pid&gt; 1000
-jstat -class &lt;pid&gt;</pre>
-      <div class="d">每秒采样一次 GC 次数与耗时、各代容量（EU/OU）；-class 看加载类数量，辅助判断 Metaspace 压力。</div>
+      <div class="k"><span class="c">字符串池</span> · intern 行为</div>
+      <pre>String a = "ab";
+String b = new String("a") + new String("b");
+System.out.println(a == b);        // false
+System.out.println(a == b.intern());// true</pre>
+      <div class="d">JDK 7 后 intern 返回池中引用（未命中则入池）；字面量进池时机与常量池表相关，是面试高频题，跑一遍比背结论牢。</div>
     </div>
     <div class="cmd">
-      <div class="k"><span class="c">制造现场</span> · 触发各区域异常</div>
-      <pre>java -Xss160k StackOverflowDemo
-java -Xmx64m OOMDemo
-java -XX:MaxMetaspaceSize=64m MetaDemo</pre>
-      <div class="d">写最小复现类分别触发 StackOverflow / heap OOM / Metaspace OOM，配合 -XX:+HeapDumpOnOutOfMemoryError 留档，走一遍完整排查流程。</div>
+      <div class="k"><span class="c">直接内存</span> · MaxDirectMemorySize</div>
+      <pre>java -XX:MaxDirectMemorySize=8m \
+     -XX:+ExitOnOutOfMemoryError DirectMemDemo
+# OutOfMemoryError: Direct buffer memory</pre>
+      <div class="d">循环 ByteBuffer.allocateDirect 不释放；参数压到 8m 快速复现「Direct buffer memory」OOM，理解直接内存独立于堆。</div>
     </div>
     <div class="cmd">
-      <div class="k"><span class="c">jhsdb</span> · 深入运行时</div>
-      <pre>jhsdb jmap --heap --pid &lt;pid&gt;
-jhsdb jstack --pid &lt;pid&gt;</pre>
-      <div class="d">JDK 9+ 的底层调试工具，能看更细的运行时结构；需要时用，日常 jcmd/jstat 已覆盖多数场景。</div>
+      <div class="k"><span class="c">对象头观测</span> · JOL</div>
+      <pre># 依赖 org.openjdk.jol:jol-core
+java -jar jol-cli.jar internals \
+     -cp . org.example.User</pre>
+      <div class="d">打印对象布局：对象头字节数（含压缩指针）、实例字段偏移、对齐填充——亲眼看到 Mark Word/Klass 指针/12 字节头部。</div>
     </div>
     <div class="cmd">
-      <div class="k"><span class="c">-Xlog</span> · GC 与类加载日志</div>
-      <pre>-Xlog:gc*:file=gc.log
--Xlog:class+load,class+unload</pre>
-      <div class="d">JDK 9+ 统一日志框架：gc* 记录各代回收与停顿；class+load/unload 记录类加载/卸载，定位「谁在制造类」。</div>
+      <div class="k"><span class="c">内存全景</span> · NMT</div>
+      <pre>java -XX:NativeMemoryTracking=summary \
+     -XX:+UnlockDiagnosticVMOptions \
+     -XX:+PrintNMTStatistics -version</pre>
+      <div class="d">Native Memory Tracking 按区域汇总：堆、元空间、Code Cache、线程栈、GC 等各占多少，调优与排查本地内存泄漏的起点。</div>
     </div>
   </div>
 </section>
@@ -737,37 +1005,37 @@ jhsdb jstack --pid &lt;pid&gt;</pre>
 <section class="pathway" id="pathway">
   <div class="wrap" style="padding:0;">
     <div class="pathway-title">建议阅读路径</div>
-    <p class="pathway-sub">从「画地图」到「看数字」：先建立六大区域的静态认知，再用工具把它变成动态观测。JDK 标准库类可在 IDE 里直接看 src.zip。</p>
+    <p class="pathway-sub">从「分区地图」到「对象的一生」：先建立全局分区，再逐个区域吃透，最后落到对象创建/布局/访问，形成完整闭环。</p>
     <div class="steps">
       <div class="step">
         <div class="no">1</div>
-        <h5>背下全景图</h5>
-        <p>线程私有：PC/虚拟机栈/本地方法栈；线程共享：堆/方法区；外加直接内存。先分清「谁私有的、谁共享的」。</p>
+        <h5>先画分区地图</h5>
+        <p>线程私有 vs 共享 → 直接内存（非规范）→ JDK7/JDK8 两次迁移；对照 OVERVIEW.html 的运行时数据区卡片。</p>
       </div>
       <div class="step">
         <div class="no">2</div>
-        <h5>搞懂栈帧</h5>
-        <p>局部变量表 → 操作数栈 → 动态链接 → 返回地址；再配合递归写一个 StackOverflowError，体会 -Xss 的作用。</p>
+        <h5>吃透线程私有区</h5>
+        <p>程序计数器（唯一无 OOM）→ 虚拟机栈（栈帧四件套 + 动态链接）→ 本地方法栈（HotSpot 合一）；配合 execution-engine.html 看栈帧如何执行。</p>
       </div>
       <div class="step">
         <div class="no">3</div>
-        <h5>搞懂堆分代</h5>
-        <p>Eden/S0/S1/Old 与晋升路径 → 写循环 new 对象触发 Minor GC，用 jstat -gc 观察各代使用率变化。</p>
+        <h5>理解堆</h5>
+        <p>分代结构 → 对象年龄 0~15 与动态年龄计算 → 堆 OOM 两种形态；GC 细节回 garbage-collection.html。</p>
       </div>
       <div class="step">
         <div class="no">4</div>
-        <h5>搞懂方法区</h5>
-        <p>Metaspace 内容与演进 → 反射/CGLIB 动态生成类制造 OOM: Metaspace，用 jcmd GC.class_stats 定位。</p>
+        <h5>方法区与常量池</h5>
+        <p>规范 vs 实现（PermGen/Metaspace）→ 存储内容 → 运行时常量池（符号 vs 直接引用）→ 字符串池移堆原因。</p>
       </div>
       <div class="step">
         <div class="no">5</div>
-        <h5>对照源码</h5>
-        <p>IDE 里看 <span class="path">java.lang.Thread</span>、<span class="path">java.nio.ByteBuffer</span>；HotSpot 路径（thread.cpp / frame.cpp / constantPool.hpp）在线浏览对照。</p>
+        <h5>直接内存补盲区</h5>
+        <p>NIO 直接缓冲区 → MaxDirectMemorySize → 堆外内存统称；用 NMT 看一次真实内存分布。</p>
       </div>
       <div class="step">
         <div class="no">6</div>
-        <h5>回到总览</h5>
-        <p>回 <span class="path">OVERVIEW.html</span> 把六大区域放回「类加载 → 数据区 → 对象 → GC → 执行」的完整链路里，看它们如何协作。</p>
+        <h5>对象探秘收尾</h5>
+        <p>创建五步默写 → 内存布局（对象头/实例数据/填充）→ 句柄 vs 直接指针；与 class-loading.html 的加载过程衔接。</p>
       </div>
     </div>
   </div>
@@ -777,8 +1045,8 @@ jhsdb jstack --pid &lt;pid&gt;</pre>
 
 <footer>
   <div class="wrap">
-    <span>OpenJDK 21.0.2 (HotSpot) · 运行时数据区专题 · 知识源：JDK 自带 src.zip + OpenJDK 主线源码路径</span>
-    <span>HotSpot 路径标注为在线浏览参考 · 未 clone OpenJDK 仓库</span>
+    <span>OpenJDK 21.0.2 (HotSpot) · 运行时数据区专题 · 知识源：JavaGuide《Java内存区域详解》+《深入理解 Java 虚拟机》</span>
+    <span>HotSpot 源码路径标注为在线浏览参考 · 未 clone OpenJDK 仓库</span>
   </div>
 </footer>
 
@@ -787,7 +1055,7 @@ jhsdb jstack --pid &lt;pid&gt;</pre>
   "use strict";
   var chips = Array.prototype.slice.call(document.querySelectorAll(".chip"));
   var nodes = Array.prototype.slice.call(document.querySelectorAll(".graph .node"));
-  var targets = ["overview","d1","d2","d3","d4","d5","d6","pathway"];
+  var targets = ["overview","d1","d2","d3","d4","d5","d6","d7","d8","d9","pathway"];
 
   function setActive(id){
     chips.forEach(function(c){ c.classList.toggle("on", c.getAttribute("data-target") === id); });
