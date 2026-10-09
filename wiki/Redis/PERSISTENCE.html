@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Redis 持久化 · RDB 与 AOF 全解 · Database/redis 学习笔记</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23DC382D'/%3E%3Cpath d='M16 6 26 16 16 26 6 16Z' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;900&display=swap">
+<style>
+  :root{
+    --bg:#0F141B; --bg2:#141B24; --card:#161E28; --card2:#1B2531;
+    --text:#E7EAEE; --text2:#9AA5B1; --text3:#6B7686; --line:rgba(255,255,255,.07);
+    --mono:"Cascadia Code",ui-monospace,Consolas,"SF Mono",Menlo,monospace;
+    --red:#E2594B; --red2:#DC382D;
+    --c1:#6FC7DE; --c2:#E8A87C; --c3:#6ECBA8; --c4:#B98CE8; --c5:#E88AA5; --c6:#E3D27A;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--bg);color:var(--text);
+    font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:rgba(220,56,45,.35);}
+  a{color:inherit;text-decoration:none;}
+  code,.mono,.path{font-family:var(--mono);font-size:.88em;}
+  .path{
+    color:var(--text2);background:rgba(0,0,0,.32);
+    border:1px solid rgba(255,255,255,.05);
+    padding:1px 6px;border-radius:5px;white-space:nowrap;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px;}
+
+  /* ===== 顶栏 ===== */
+  header{
+    position:sticky;top:0;z-index:50;
+    background:rgba(15,20,27,.9);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .nav{display:flex;align-items:center;gap:8px;padding:10px 0;overflow-x:auto;scrollbar-width:none;}
+  .nav::-webkit-scrollbar{display:none;}
+  .brand{font-weight:900;font-size:15px;letter-spacing:.5px;white-space:nowrap;margin-right:10px;}
+  .brand b{color:var(--red2);}
+  .chip{
+    flex:0 0 auto;padding:4px 12px;border-radius:999px;
+    font-size:12.5px;color:var(--text2);border:1px solid var(--line);
+    cursor:pointer;white-space:nowrap;transition:color .15s,border-color .15s,background .15s;
+  }
+  .chip:hover{color:var(--text);border-color:rgba(255,255,255,.22);}
+  .chip.on{color:var(--text);background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.28);}
+  .chip .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;}
+
+  /* ===== Hero ===== */
+  .hero{padding:54px 0 40px;border-bottom:1px solid var(--line);}
+  .hero .kicker{font-size:12.5px;letter-spacing:2px;color:var(--text3);margin-bottom:12px;}
+  .hero h1{font-size:38px;line-height:1.22;font-weight:900;letter-spacing:.5px;}
+  .hero h1 .hl{color:var(--red2);}
+  .hero .sub{margin-top:12px;color:var(--text2);font-size:15px;max-width:720px;}
+  .pillars{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap;}
+  .pillar{
+    border:1px solid var(--line);border-radius:10px;padding:10px 14px;
+    background:var(--card);flex:1 1 200px;min-width:0;
+  }
+  .pillar .n{font-size:12px;color:var(--text2);letter-spacing:1px;margin-bottom:3px;}
+  .pillar .t{font-size:14px;font-weight:700;}
+  .pillar .s{font-size:12px;color:var(--text3);margin-top:2px;}
+
+  /* ===== 通用区块 ===== */
+  section{padding:38px 0 8px;border-bottom:1px solid var(--line);scroll-margin-top:64px;}
+  .sec-head{display:flex;align-items:baseline;gap:12px;margin-bottom:8px;flex-wrap:wrap;}
+  .sec-no{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--red2);}
+  .sec-title{font-size:23px;font-weight:700;letter-spacing:.3px;}
+  .sec-en{font-size:12px;color:var(--text3);letter-spacing:1px;}
+  .sec-desc{color:var(--text2);font-size:13.5px;margin:2px 0 18px;max-width:860px;}
+  .sec-body{display:grid;gap:14px;}
+  .sec-body p{color:var(--text2);max-width:860px;}
+  .sec-body p b,.sec-body p strong{color:var(--text);}
+  .refs{display:flex;flex-wrap:wrap;gap:8px;}
+  .ref{
+    font-family:var(--mono);font-size:11.5px;color:var(--c1);
+    background:rgba(0,0,0,.32);border:1px solid var(--line);border-radius:7px;
+    padding:5px 10px;white-space:nowrap;
+  }
+  .ref .where{color:var(--text2);}
+  .points{list-style:none;display:grid;gap:8px;}
+  .points li{position:relative;padding-left:18px;color:var(--text2);font-size:13.5px;max-width:880px;}
+  .points li::before{content:"";position:absolute;left:2px;top:10px;width:6px;height:6px;border-radius:2px;background:var(--red2);}
+  .points li b{color:var(--text);}
+  .note{
+    font-size:12.5px;color:var(--text3);background:rgba(255,255,255,.03);
+    border:1px solid var(--line);border-left:3px solid var(--red2);
+    border-radius:8px;padding:9px 13px;max-width:880px;
+  }
+  .note b{color:var(--text2);}
+
+  /* ===== 表格 ===== */
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;}
+  table{width:100%;border-collapse:collapse;table-layout:fixed;min-width:660px;}
+  th,td{padding:9px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);}
+  thead th{background:var(--card2);font-size:12.5px;color:var(--text2);font-weight:600;}
+  td{font-size:13px;color:var(--text2);}
+  td b,td .k{color:var(--text);font-weight:600;}
+  tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:rgba(255,255,255,.025);}
+  .mono-cell{font-family:var(--mono);font-size:11.5px;color:var(--c1);white-space:nowrap;}
+  .tag{
+    display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;
+    border:1px solid var(--line);margin-left:4px;vertical-align:1px;
+  }
+  .tag.cur{color:#0F141B;background:var(--c3);border-color:var(--c3);}
+  .tag.new{color:#0F141B;background:var(--c6);border-color:var(--c6);}
+  .tag.dep{color:var(--text3);background:transparent;border-color:rgba(255,255,255,.15);}
+  .tag.mod{color:#0F141B;background:var(--c1);border-color:var(--c1);}
+
+  /* ===== 代码块 ===== */
+  .code{
+    font-family:var(--mono);font-size:12.5px;line-height:1.75;
+    background:rgba(0,0,0,.38);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;white-space:pre;
+  }
+  .code .kw{color:var(--c1);font-weight:700;}
+  .code .num{color:var(--c6);}
+  .code .cm{color:var(--text3);}
+  .code .ok{color:var(--c3);font-weight:700;}
+
+  /* ===== 二进制布局（RDB 文件段） ===== */
+  .bits{display:flex;gap:2px;flex-wrap:wrap;margin:6px 0 4px;}
+  .bit{
+    border-radius:6px;padding:7px 9px;text-align:center;min-width:0;
+  }
+  .bit .b{font-family:var(--mono);font-size:10.5px;font-weight:700;display:block;letter-spacing:.5px;word-break:break-all;}
+  .bit .l{font-size:10.5px;display:block;margin-top:1px;opacity:.85;}
+  .bit .f{font-family:var(--mono);font-size:9px;display:block;margin-top:1px;opacity:.62;word-break:break-all;}
+
+  /* ===== 决策流程 / 管道 ===== */
+  .pipe{display:flex;flex-wrap:wrap;gap:0;align-items:stretch;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 14px;}
+  .pstep{flex:1 1 150px;min-width:150px;padding:6px 8px;}
+  .pstep .n{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--red2);color:#fff;
+    align-items:center;justify-content:center;font-size:12px;font-weight:700;font-family:var(--mono);
+    vertical-align:middle;}
+  .pstep .t{display:inline-block;vertical-align:middle;font-size:13.5px;font-weight:700;padding-left:6px;}
+  .pstep .f{display:block;font-family:var(--mono);font-size:10.5px;color:var(--text2);margin-top:5px;line-height:1.5;}
+  .parrow{color:var(--red2);font-weight:700;font-size:18px;align-self:center;padding:0 2px;}
+
+  /* ===== 时间线 ===== */
+  .tl{display:grid;gap:0;border-left:2px solid rgba(255,255,255,.12);margin-left:6px;padding-left:18px;}
+  .tl-item{position:relative;padding:0 0 16px;}
+  .tl-item::before{
+    content:"";position:absolute;left:-25px;top:7px;width:10px;height:10px;border-radius:50%;
+    background:var(--bg);border:2px solid var(--red2);
+  }
+  .tl-item .tt{font-size:14px;font-weight:700;}
+  .tl-item .td{font-size:12.5px;color:var(--text2);margin-top:2px;max-width:820px;}
+  .tl-item .tf{font-family:var(--mono);font-size:11px;color:var(--c1);margin-top:3px;}
+
+  /* ===== 源码索引 ===== */
+  .idx{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;}
+  .idx-card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:11px 13px;}
+  .idx-card .t{font-size:13.5px;font-weight:700;color:var(--c1);}
+  .idx-card .f{font-family:var(--mono);font-size:11px;color:var(--text2);margin:4px 0;display:block;}
+  .idx-card .d{font-size:12px;color:var(--text3);line-height:1.6;}
+
+  footer{padding:30px 0 44px;color:var(--text3);font-size:12.5px;}
+  footer .wrap{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+
+  #topBtn{
+    position:fixed;right:22px;bottom:22px;width:40px;height:40px;border-radius:10px;
+    background:var(--card2);border:1px solid var(--line);color:var(--text2);
+    font-size:16px;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .2s;
+    font-family:var(--mono);z-index:60;
+  }
+  #topBtn.show{opacity:1;pointer-events:auto;}
+  #topBtn:hover{color:var(--text);border-color:rgba(255,255,255,.25);}
+
+  @media (max-width:760px){
+    .wrap{padding:0 16px;}
+    .hero h1{font-size:28px;}
+    .nav{padding:8px 0;}
+    .chip{min-height:44px;display:inline-flex;align-items:center;padding:6px 13px;}
+    .pipe{flex-direction:column;gap:8px;}
+    .parrow{transform:rotate(90deg);align-self:flex-start;padding-left:10px;}
+    section{padding:28px 0 4px;}
+  }
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto;}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <nav class="nav" id="nav">
+      <span class="brand">Redis <b>持久化</b></span>
+      <a class="chip" href="#why"><span class="dot" style="background:var(--red2)"></span>为什么需要</a>
+      <a class="chip" href="#rdb-format"><span class="dot" style="background:var(--c1)"></span>RDB 文件格式</a>
+      <a class="chip" href="#rdb-trigger"><span class="dot" style="background:var(--c2)"></span>触发与 COW</a>
+      <a class="chip" href="#aof-chain"><span class="dot" style="background:var(--c3)"></span>AOF 写入链路</a>
+      <a class="chip" href="#fsync"><span class="dot" style="background:var(--c6)"></span>appendfsync</a>
+      <a class="chip" href="#aof-rewrite"><span class="dot" style="background:var(--c4)"></span>AOF 重写</a>
+      <a class="chip" href="#aof8"><span class="dot" style="background:var(--c5)"></span>8.x Multi-Part</a>
+      <a class="chip" href="#hybrid"><span class="dot" style="background:var(--c2)"></span>混合持久化</a>
+      <a class="chip" href="#load"><span class="dot" style="background:var(--c6)"></span>数据加载</a>
+      <a class="chip" href="#compare"><span class="dot" style="background:var(--c3)"></span>对比与选型</a>
+      <a class="chip" href="#index"><span class="dot" style="background:var(--text3)"></span>源码索引</a>
+    </nav>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="wrap">
+    <div class="kicker">学习笔记 · 源码 Database/redis · 8.10.1</div>
+    <h1>Redis <span class="hl">持久化</span>：RDB 与 AOF 全解</h1>
+    <p class="sub">内存是易失的。Redis 用两套机制把数据落盘：<b>RDB 定时快照</b>（紧凑、恢复快、有丢失窗口）与 <b>AOF 追加日志</b>（逐命令记录、fsync 精度可调、体积需要重写收敛）。8.x 起 AOF 演进为 <b>Multi-Part</b>：用 manifest 统一管理 base 快照与 incr 增量文件链。</p>
+    <div class="pillars">
+      <div class="pillar"><div class="n">RDB 快照</div><div class="t">RDB_VERSION 15</div><div class="s">fork + COW · 二进制紧凑格式</div></div>
+      <div class="pillar"><div class="n">AOF 追加日志</div><div class="t">feed → flush → fsync</div><div class="s">always / everysec / no</div></div>
+      <div class="pillar"><div class="n">混合持久化</div><div class="t">aof-use-rdb-preamble</div><div class="s">base 用 RDB 编码，incr 用命令</div></div>
+      <div class="pillar"><div class="n">8.x Multi-Part</div><div class="t">base + incr + history</div><div class="s">manifest 声明式管理文件链</div></div>
+    </div>
+  </div>
+</div>
+
+<section id="why">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">01</span>
+      <span class="sec-title">为什么需要持久化</span>
+      <span class="sec-en">WHY PERSIST</span>
+    </div>
+    <p class="sec-desc">Redis 默认把全部数据放在内存（<span class="path">server.db</span> 的 dict/kvstore 中），进程退出即失。持久化的价值在于：<b>崩溃后恢复</b>与<b>作为复制数据源</b>（主从全量同步直接发 RDB）。</p>
+    <div class="sec-body">
+      <div class="tl">
+        <div class="tl-item"><div class="tt">进程崩溃 / 断电 / 重启</div><div class="td">内存数据全部丢失，靠磁盘上的持久化文件重建数据集。</div><div class="tf">server.c:7690 loadDataFromDisk</div></div>
+        <div class="tl-item"><div class="tt">主从全量复制</div><div class="td">从节点首次连主节点，主节点后台生成 RDB 快照直接推流（无盘复制时甚至不落盘），从节点加载后追赶 backlog。</div><div class="tf">replication.c · rdb.c:5292 rdbSaveToSlavesSockets</div></div>
+        <div class="tl-item"><div class="tt">停机维护 / 数据迁移</div><div class="td">SAVE / BGSAVE 产出快照文件，可离线归档或迁移到新实例。</div><div class="tf">server.c:1841（shutdown 保存）</div></div>
+      </div>
+      <ul class="points">
+        <li><b>两条技术路线</b>：快照（RDB，某时刻全量状态的二进制拷贝）vs 追加日志（AOF，把每条写命令记录下来，回放即恢复）。前者恢复快但丢失窗口大，后者丢失窗口可控但文件要重写。</li>
+        <li><b>8.x 的融合</b>：混合持久化（base=RDB 格式 + incr=AOF 命令）与 Multi-Part manifest，本质是把"快照 + 日志"组合成一套文件链，兼顾恢复速度与丢失窗口。</li>
+        <li><b>不持久化的场景</b>：纯缓存、可容忍全量重建的数据，可关闭 AOF 并配置 save "" 禁用 RDB，追求极致写性能。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="rdb-format">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">02</span>
+      <span class="sec-title">RDB 文件格式</span>
+      <span class="sec-en">RDB FILE FORMAT</span>
+    </div>
+    <p class="sec-desc">RDB 是<b>自定义二进制格式</b>，按 opcode（单字节类型标记）流式组织。当前版本 <span class="path">RDB_VERSION 15</span>（<span class="path">rdb.h:21</span>），文件头为 <span class="mono">"REDIS0015"</span>（<span class="path">rdb.c:2036</span>）。</p>
+    <div class="sec-body">
+      <div class="bits">
+        <div class="bit" style="flex:0 1 120px;background:#E2594B;"><span class="b" style="color:#fff;">"REDIS0015"</span><span class="l" style="color:#fff;">Magic + 版本</span><span class="f" style="color:#fff;">9 字节</span></div>
+        <div class="bit" style="flex:1 1 130px;background:#6FC7DE;"><span class="b">AUX 字段</span><span class="l">元数据</span><span class="f">redis-ver / used-mem / repl-id…</span></div>
+        <div class="bit" style="flex:1 1 110px;background:#B98CE8;"><span class="b">可选段</span><span class="l">modules / functions / templates</span><span class="f">8.x hash template</span></div>
+        <div class="bit" style="flex:1 1 120px;background:#E3D27A;"><span class="b">SELECTDB + 键值对</span><span class="l">逐库逐键</span><span class="f">含 EXPIRETIME / RESIZEDB 提示</span></div>
+        <div class="bit" style="flex:0 1 80px;background:#6ECBA8;"><span class="b">EOF</span><span class="l">255</span><span class="f">RDB_OPCODE_EOF</span></div>
+        <div class="bit" style="flex:0 1 90px;background:#E88AA5;"><span class="b">CRC64</span><span class="l">校验和</span><span class="f">rdb_checksum 可关</span></div>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <colgroup><col style="width:14%"><col style="width:12%"><col style="width:40%"><col style="width:34%"></colgroup>
+          <thead><tr><th>Opcode</th><th>值</th><th>含义</th><th>位置 / 说明</th></tr></thead>
+          <tbody>
+            <tr><td class="k">EOF</td><td class="mono-cell">255</td><td>数据区结束标记</td><td class="mono-cell">rdb.h:114 · rdb.c:2064</td></tr>
+            <tr><td class="k">SELECTDB</td><td class="mono-cell">254</td><td>切换数据库编号（跟随 1 字节 dbid）</td><td class="mono-cell">rdb.h:113</td></tr>
+            <tr><td class="k">EXPIRETIME</td><td class="mono-cell">253</td><td>过期时间（秒，旧格式，8.0 起不再写）</td><td class="mono-cell">rdb.h:112</td></tr>
+            <tr><td class="k">EXPIRETIME_MS</td><td class="mono-cell">252</td><td>过期时间（毫秒，当前使用）</td><td class="mono-cell">rdb.h:111</td></tr>
+            <tr><td class="k">RESIZEDB</td><td class="mono-cell">251</td><td>db 大小提示，加载时预分配避免渐进 rehash</td><td class="mono-cell">rdb.h:110</td></tr>
+            <tr><td class="k">AUX</td><td class="mono-cell">250</td><td>通用元数据键值（redis-ver、redis-bits、ctime、used-mem、repl-id 等）</td><td class="mono-cell">rdb.h:109 · rdb.c:1763</td></tr>
+            <tr><td class="k">FREQ</td><td class="mono-cell">249</td><td>LFU 淘汰频率，逐键元数据</td><td class="mono-cell">rdb.h:108</td></tr>
+            <tr><td class="k">IDLE</td><td class="mono-cell">248</td><td>LRU 空闲时间，逐键元数据</td><td class="mono-cell">rdb.h:107</td></tr>
+            <tr><td class="k">MODULE_AUX</td><td class="mono-cell">247</td><td>模块辅助数据（数据区前/后各一段）</td><td class="mono-cell">rdb.h:106 · rdb.c:2039/2061</td></tr>
+            <tr><td class="k">FUNCTION_PRE_GA</td><td class="mono-cell">246</td><td>7.0 rc 阶段旧函数库数据</td><td class="mono-cell">rdb.h:105</td></tr>
+            <tr><td class="k">FUNCTION2</td><td class="mono-cell">245</td><td>函数库数据</td><td class="mono-cell">rdb.h:104 · rdb.c:2042</td></tr>
+            <tr><td class="k">SLOT_INFO</td><td class="mono-cell">244</td><td>集群模式槽位信息</td><td class="mono-cell">rdb.h:103</td></tr>
+            <tr><td class="k">KEY_META</td><td class="mono-cell">243</td><td>键级元数据（模块元数据类）</td><td class="mono-cell">rdb.h:102</td></tr>
+            <tr><td class="k">HASH_TEMPLATE</td><td class="mono-cell">242 <span class="tag new">8.x</span></td><td>hash 字段名模板注册表，模板化 hash 以紧凑 REF 形式存储</td><td class="mono-cell">rdb.h:101 · rdb.c:2046</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">入口</span> rdb.c:2027 rdbSaveRio</span>
+        <span class="ref"><span class="where">键值对</span> rdb.c:1689 rdbSaveKeyValuePair</span>
+        <span class="ref"><span class="where">AUX</span> rdb.c:1763 rdbSaveInfoAuxFields</span>
+        <span class="ref"><span class="where">加载</span> rdb.c:4665 rdbLoadRio</span>
+      </div>
+      <ul class="points">
+        <li><b>写入顺序</b>（<span class="path">rdb.c:2027-2072</span>）：magic → AUX → 模块前段 → 函数库 → hash 模板 → 逐库键值（<span class="mono">rdbSaveDb</span> 内含 SELECTDB / RESIZEDB / EXPIRETIME）→ 模块后段 → EOF → CRC64。</li>
+        <li><b>字符串编码紧凑</b>：长度用 <span class="mono">rdbSaveLen</span>（<span class="path">rdb.c:176</span>）做可变长编码；整数用特殊编码位标记，避免按字符串存。</li>
+        <li><b>8.x 模板化 hash</b>：<span class="mono">RDB_OPCODE_HASH_TEMPLATE</span> 先把共享字段名注册为模板 id，之后同模板的 hash 只写"id + 值列表"，显著省空间（<span class="path">rdb.c:2046-2048</span>）。</li>
+        <li><b>校验</b>：文件尾 8 字节 CRC64（<span class="path">rdb.c:2066-2070</span>），加载时校验；<span class="mono">rdb_checksum</span> 关闭时跳过。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="rdb-trigger">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">03</span>
+      <span class="sec-title">触发时机与 fork + COW</span>
+      <span class="sec-en">TRIGGERS &amp; COPY-ON-WRITE</span>
+    </div>
+    <p class="sec-desc">RDB 生成几乎总是走<b>子进程</b>（BGSAVE）：fork 瞬间的内存页表快照 + 写时复制，让父进程在保存期间继续服务写请求而不阻塞。</p>
+    <div class="sec-body">
+      <div class="pipe">
+        <div class="pstep"><span class="n">1</span><span class="t">触发</span><span class="f">save 配置 / BGSAVE / shutdown / 全量复制</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">2</span><span class="t">fork 子进程</span><span class="f">子进程继承父进程页表（内存共享）</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">3</span><span class="t">子进程写临时文件</span><span class="f">rdbSaveInternal → rdbSaveRio</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">4</span><span class="t">父进程继续服务</span><span class="f">写操作触发 COW 复制脏页，子进程看到的仍是旧页</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">5</span><span class="t">rename 原子替换</span><span class="f">写成功才覆盖正式文件，失败保留旧文件</span></div>
+      </div>
+      <ul class="points">
+        <li><b>save 配置的周期性检查</b>：<span class="mono">serverCron</span> 每秒检查 <span class="mono">server.dirty &gt;= sp-&gt;changes</span> 且距上次保存超时（<span class="path">server.c:1714-1724</span>）则 <span class="mono">rdbSaveBackground</span>。默认 900s 1 改 / 300s 10 改 / 60s 10000 改。</li>
+        <li><b>SAVE 命令是同步的</b>：<span class="mono">rdbSave</span>（<span class="path">rdb.c:2180</span>）在前台执行，期间阻塞所有客户端 —— 生产环境禁用，只用 BGSAVE / 配置触发。</li>
+        <li><b>8.x 的 COW 优化</b>：子进程保存完一个 db 的桶数组后，<span class="mono">dismissKvstoreBucketsMemory</span> 主动释放页缓存，减少后续写操作触发 COW 复制的代价（<span class="path">rdb.c:2056-2057</span>）。</li>
+        <li><b>写入原子性</b>：<span class="mono">rdbSaveInternal</span>（<span class="path">rdb.c:2109</span>）写 <span class="mono">temp-&lt;pid&gt;.rdb</span>，成功后 <span class="mono">rename</span> 覆盖目标文件 —— 崩溃只可能留下半成品临时文件，正式文件始终完整。</li>
+        <li><b>无盘复制</b>：<span class="mono">repl-diskless-sync</span> 时 RDB 通过 socket 直接推给从节点，不落盘（<span class="path">rdb.c:5292 rdbSaveToSlavesSockets</span>）。</li>
+      </ul>
+      <div class="note"><b>记忆锚点</b>：RDB 的"快照一致性"来自 fork 的页表冻结 —— 子进程看到的是 fork 时刻的整棵内存树，与之后父进程的写入完全隔离，这就是它不需要加锁的原因。</div>
+    </div>
+  </div>
+</section>
+
+<section id="aof-chain">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">04</span>
+      <span class="sec-title">AOF 写入链路</span>
+      <span class="sec-en">APPEND-ONLY CHAIN</span>
+    </div>
+    <p class="sec-desc">AOF 的核心是"把每条改库命令变成可回放的日志行"。命令执行成功后，<span class="mono">feedAppendOnlyFile</span> 先把日志行追加进内存缓冲 <span class="mono">server.aof_buf</span>，再由事件循环统一刷盘。</p>
+    <div class="sec-body">
+      <div class="pipe">
+        <div class="pstep"><span class="n">1</span><span class="t">命令执行成功</span><span class="f">call() 内写路径完成</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">2</span><span class="t">feedAppendOnlyFile</span><span class="f">追加命令到 server.aof_buf（含 SELECT db）</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">3</span><span class="t">事件循环 beforeSleep</span><span class="f">flushAppendOnlyFile 统一刷盘</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">4</span><span class="t">aofWrite 写文件</span><span class="f">写入当前 incr 文件 fd（8.x）</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">5</span><span class="t">按策略 fsync</span><span class="f">always / everysec / no</span></div>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">入缓冲</span> aof.c:1661 feedAppendOnlyFile</span>
+        <span class="ref"><span class="where">刷盘</span> aof.c:1399 flushAppendOnlyFile</span>
+        <span class="ref"><span class="where">写文件</span> aof.c:1470 aofWrite</span>
+        <span class="ref"><span class="where">缓冲</span> server.h aof_buf / aof_flush_sleep</span>
+      </div>
+      <ul class="points">
+        <li><b>协议复用</b>：AOF 日志行就是 RESP 协议文本（<span class="mono">*N\r\n$len\r\ncmd...\r\n</span>），加载时走与客户端命令相同的解析与执行路径 —— 语义零损失。</li>
+        <li><b>SELECT 记录</b>：<span class="mono">feedAppendOnlyFile</span> 在库号变化时写 <span class="mono">SELECT n</span>，保证回放时落在正确的 db。</li>
+        <li><b>批量聚合</b>：命令在 <span class="mono">aof_buf</span> 中累积，直到事件循环才一次性 <span class="mono">aofWrite</span>（<span class="path">aof.c:1470</span>）；小于 4KB 的残留缓冲会被保留复用（<span class="path">aof.c:1568-1572</span>），减少系统调用次数。</li>
+        <li><b>部分写处理</b>：<span class="mono">nwritten &lt; len</span> 时保留未写部分（<span class="path">aof.c:1489/1550</span>），下次继续；<span class="mono">no-appendfsync-on-rewrite</span> 可在重写期间跳过 fsync 减轻磁盘压力（<span class="path">aof.c:1576</span>）。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="fsync">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">05</span>
+      <span class="sec-title">appendfsync 三档策略</span>
+      <span class="sec-en">FSYNC POLICIES</span>
+    </div>
+    <p class="sec-desc">write 只把数据交给内核页缓存，<b>fsync 才真正落盘</b>。三档策略（<span class="path">server.h:661-663</span>）在"崩溃丢失窗口"与"写性能"之间取舍。</p>
+    <div class="sec-body">
+      <div class="tbl-wrap">
+        <table>
+          <colgroup><col style="width:14%"><col style="width:22%"><col style="width:28%"><col style="width:36%"></colgroup>
+          <thead><tr><th>策略</th><th>行为</th><th>丢失窗口</th><th>适用</th></tr></thead>
+          <tbody>
+            <tr><td class="k">always</td><td class="mono-cell">AOF_FSYNC_ALWAYS 1</td><td>最多 1 条命令</td><td>金融级、绝不可丢；每条写命令后同步 fsync，吞吐最低</td></tr>
+            <tr><td class="k">everysec</td><td class="mono-cell">AOF_FSYNC_EVERYSEC 2</td><td>最多 1 秒</td><td>默认；后台线程每秒 fsync，兼顾安全与吞吐</td></tr>
+            <tr><td class="k">no</td><td class="mono-cell">AOF_FSYNC_NO 0</td><td>取决于操作系统刷盘</td><td>追求极限写性能；由内核决定何时落盘</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="points">
+        <li><b>everysec 的实现</b>：<span class="mono">flushAppendOnlyFile</span> 检查 <span class="mono">server.mstime - server.aof_last_fsync &gt;= 1000</span> 才 fsync（<span class="path">aof.c:1421 / 1600-1605</span>），并记录 <span class="mono">aof_last_fsync</span>。</li>
+        <li><b>always 的实现</b>：每次刷盘后立即 <span class="mono">fsync</span>（<span class="path">aof.c:1597</span>），代价是每个事件循环都可能阻塞在磁盘 IO。</li>
+        <li><b>崩溃语义</b>：everysec 模式下进程崩溃但系统未崩，最多丢最近 1 秒日志；整机断电则未 fsync 的页缓存也可能丢。always 在任何崩溃下最多丢正在写的那一条。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="aof-rewrite">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">06</span>
+      <span class="sec-title">AOF 重写：收敛文件体积</span>
+      <span class="sec-en">AOF REWRITE</span>
+    </div>
+    <p class="sec-desc">追加式日志只增不减：一万次 <span class="mono">INCR</span> 会留下 1 万条日志，而当前值只有一个。重写 = 按<b>当前内存状态</b>重新生成一份最小 AOF（或 RDB 格式 base），把中间历史全部折叠掉。</p>
+    <div class="sec-body">
+      <div class="pipe">
+        <div class="pstep"><span class="n">1</span><span class="t">触发</span><span class="f">手动 bgrewriteaof / auto-aof-rewrite 阈值</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">2</span><span class="t">fork 子进程</span><span class="f">rewriteAppendOnlyFileBackground</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">3</span><span class="t">子进程重写快照</span><span class="f">按内存生成 base 文件（RDB 或纯命令）</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">4</span><span class="t">父进程收集增量</span><span class="f">重写期间的新命令进 aof_rewrite_buf</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">5</span><span class="t">合并落盘</span><span class="f">子进程快照 + 增量差量 → 新 base → 切换 manifest</span></div>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">触发</span> server.c:1741 auto-aof-rewrite</span>
+        <span class="ref"><span class="where">调度</span> server.c:1692-1696 aof_rewrite_scheduled</span>
+        <span class="ref"><span class="where">fork</span> aof.c:3197 rewriteAppendOnlyFileBackground</span>
+        <span class="ref"><span class="where">生成</span> aof.c:3117 rewriteAppendOnlyFile</span>
+      </div>
+      <ul class="points">
+        <li><b>自动触发条件</b>：<span class="mono">auto-aof-rewrite-percentage 100</span> + <span class="mono">auto-aof-rewrite-min-size 64mb</span> —— 文件增长超过上次重写后 100% 且大于 64MB 才重写（<span class="path">server.c:1741</span>）。</li>
+        <li><b>与 BGSAVE 互斥</b>：后台保存与重写不并行（<span class="path">server.c:1692</span>），避免两个 fork 子进程争抢内存。</li>
+        <li><b>重写期间的增量</b>：父进程把新命令同时写入 <span class="mono">aof_rewrite_buf</span>（<span class="mono">aofChildWriteDiffData</span>），重写结束时合并进新文件 —— 保证新 base 覆盖到切换那一刻的状态。</li>
+        <li><b>8.x 的产物</b>：重写产出 <span class="mono">.base.rdb</span>（或 .base.aof）与新的 <span class="mono">.incr.aof</span>，旧文件转为 history 待清理（见 07）。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="aof8">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">07</span>
+      <span class="sec-title">8.x Multi-Part AOF</span>
+      <span class="sec-en">MULTI-PART MANIFEST</span>
+    </div>
+    <p class="sec-desc">8.0 起 AOF 从"单个大文件"重构为 <b>manifest + 文件链</b>：一个 base 文件（快照，RDB 或 AOF 格式）+ 多个 incr 文件（增量命令，只有当前一个为 active）+ 历史文件（history，重写后待清理）。manifest 用文本声明式描述整条链。</p>
+    <div class="sec-body">
+      <div class="code">
+<span class="cm"># appendonly.aof.manifest —— 声明 base / incr / history（aof.c:64-71 示例）</span><br>
+<span class="kw">file</span> appendonly.aof.2.base.rdb <span class="kw">seq</span> <span class="num">2</span> <span class="kw">type</span> b   <span class="cm">← base 快照（重写产物，RDB 格式）</span><br>
+<span class="kw">file</span> appendonly.aof.1.incr.aof <span class="kw">seq</span> <span class="num">1</span> <span class="kw">type</span> h   <span class="cm">← history（旧增量，待清理）</span><br>
+<span class="kw">file</span> appendonly.aof.4.incr.aof <span class="kw">seq</span> <span class="num">4</span> <span class="kw">type</span> i   <span class="cm">← active 增量（当前写入）</span>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <colgroup><col style="width:20%"><col style="width:32%"><col style="width:48%"></colgroup>
+          <thead><tr><th>类型</th><th>命名</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="k">base</td><td class="mono-cell">appendonly.aof.&lt;seq&gt;.base.rdb / .aof</td><td>重写产出的全量快照；混合持久化下为 RDB 格式</td></tr>
+            <tr><td class="k">incr</td><td class="mono-cell">appendonly.aof.&lt;seq&gt;.incr.aof</td><td>增量命令日志；只有 seq 最大且 type=i 的一个是 active，写入只落它</td></tr>
+            <tr><td class="k">history</td><td class="mono-cell">appendonly.aof.&lt;seq&gt;.base/.incr.aof（type h）</td><td>被重写淘汰的旧文件，加载时跳过、后台自动清理</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">结构</span> aof.c:155 aofManifestCreate（base + incr list + history list）</span>
+        <span class="ref"><span class="where">加载 manifest</span> aof.c:242 aofLoadManifestFromDisk</span>
+        <span class="ref"><span class="where">启动打开</span> aof.c:734 aofOpenIfNeededOnServerStart</span>
+        <span class="ref"><span class="where">新增 incr</span> aof.c:905 aofManifestAddNewIncr</span>
+      </div>
+      <ul class="points">
+        <li><b>为什么改</b>：旧单文件 AOF 重写要"写临时文件 + rename 覆盖"，崩溃时序复杂、大文件 I/O 重；Multi-Part 让 base 与增量<b>物理分离</b>，重写只是"换一个 base + 开一个新的 incr"，天然原子。</li>
+        <li><b>命名规则</b>（<span class="path">aof.c:74-80</span>）：<span class="mono">.base / .incr / .rdb / .aof / .manifest</span> 后缀 + 单调递增 <span class="mono">seq</span>。</li>
+        <li><b>生命周期</b>：重写成功后旧 base/incr 全部降级为 history（<span class="path">aof.c:55-62</span> 注释），后台 GC 自动删除；<span class="mono">aofManifestFreeAndUpdate</span> 维护内存 manifest 与磁盘文件一一对应。</li>
+        <li><b>调试</b>：<span class="mono">INFO persistence</span> 可看 aof_base_size / aof_current_size 等；目录下可见 <span class="mono">appendonly.aof.manifest</span> 与各分片文件。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="hybrid">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">08</span>
+      <span class="sec-title">混合持久化：aof-use-rdb-preamble</span>
+      <span class="sec-en">HYBRID PERSISTENCE</span>
+    </div>
+    <p class="sec-desc">7.0+ 默认开启：AOF 重写产出的 <b>base 文件直接用 RDB 二进制格式</b>（<span class="path">server.h:2347 aof_use_rdb_preamble</span>），只有后续的 incr 增量才是命令日志。加载时先 rdbLoad 读 base（快），再回放 incr（准）。</p>
+    <div class="sec-body">
+      <div class="pipe">
+        <div class="pstep"><span class="n">1</span><span class="t">重写开始</span><span class="f">rewriteAppendOnlyFile 检查开关</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">2</span><span class="t">开启 → rdbSaveRio</span><span class="f">RDBFLAGS_AOF_PREAMBLE 直接写二进制</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">3</span><span class="t">关闭 → 纯命令</span><span class="f">rewriteAppendOnlyFileRio 逐 key 生成 RESP</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">4</span><span class="t">加载</span><span class="f">按文件头 magic 判断 RDB 段，再回放 incr</span></div>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">分支判断</span> aof.c:3140-3148</span>
+        <span class="ref"><span class="where">RDB 段</span> rdb.c:2027 rdbSaveRio(RDBFLAGS_AOF_PREAMBLE)</span>
+        <span class="ref"><span class="where">纯命令</span> aof.c:3013 rewriteAppendOnlyFileRio</span>
+      </div>
+      <ul class="points">
+        <li><b>收益</b>：base 是二进制快照 —— 文件更小、加载更快（无需重放海量命令）；incr 保留命令语义保证最新增量。这是 8.x Multi-Part 下 base 默认就是 <span class="mono">.base.rdb</span> 的原因。</li>
+        <li><b>代价</b>：base 段不可读（二进制），排查需要 <span class="mono">redis-check-rdb</span> / <span class="mono">redis-check-aof</span> 工具配合。</li>
+        <li><b>配置</b>：<span class="mono">aof-use-rdb-preamble yes</span>（默认）。关闭则退化为纯命令 AOF 重写。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="load">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">09</span>
+      <span class="sec-title">启动数据加载</span>
+      <span class="sec-en">LOAD ON STARTUP</span>
+    </div>
+    <p class="sec-desc">启动时 <span class="mono">loadDataFromDisk</span>（<span class="path">server.c:7690</span>）按<b>优先级</b>决定从哪恢复：AOF 优先于 RDB（AOF 丢失窗口更小），8.x 还支持 <span class="mono">preload-file</span> 显式指定。</p>
+    <div class="sec-body">
+      <div class="pipe">
+        <div class="pstep"><span class="n">1</span><span class="t">preload-file 指定</span><span class="f">aof:/rdb: 前缀显式加载（8.x）</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">2</span><span class="t">AOF 开启？</span><span class="f">loadAppendOnlyFiles 按 manifest 加载 base + incr</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">3</span><span class="t">否则 RDB</span><span class="f">rdbLoad → rdbLoadRio → 逐键重建</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">4</span><span class="t">恢复完成</span><span class="f">继续加载复制 backlog / 开启服务</span></div>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">总入口</span> server.c:7690 loadDataFromDisk</span>
+        <span class="ref"><span class="where">AOF 链加载</span> server.c:7745 loadAppendOnlyFiles</span>
+        <span class="ref"><span class="where">RDB 加载</span> rdb.c:5124 rdbLoad → rdb.c:4677 rdbLoadRioWithLoadingCtxInternal</span>
+      </div>
+      <ul class="points">
+        <li><b>AOF 优先的原因</b>：AOF 的数据通常比 RDB 新（丢失窗口更小）；两者都开启时以 AOF 为准，RDB 仅作兜底。</li>
+        <li><b>Multi-Part 加载</b>：<span class="mono">loadAppendOnlyFiles</span> 按 manifest 顺序读 base（若是 RDB 格式走 rdbLoad）再回放全部 incr，<b>history 文件跳过</b>。</li>
+        <li><b>损坏处理</b>：AOF 尾部截断时日志告警并自动截断到最后一个完整命令（<span class="mono">aofLoadTruncated</span>），而非直接拒绝启动 —— 保证"能起来"优先；RDB 损坏则校验失败退出。</li>
+        <li><b>8.x 升级路径</b>：<span class="mono">upgradeAofIfNeeded</span>（<span class="path">server.c:7743</span>）在升级场景把旧单文件 AOF 转换为新 manifest 结构，避免启动即触发前台重写。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="compare">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">10</span>
+      <span class="sec-title">对比与选型</span>
+      <span class="sec-en">RDB vs AOF vs HYBRID</span>
+    </div>
+    <p class="sec-desc">三者不是互斥关系：默认配置下它们<b>同时工作</b>（RDB 兜底 + AOF 精细恢复），8.x 的混合 base 又让 AOF 重写后的恢复速度接近纯 RDB。</p>
+    <div class="sec-body">
+      <div class="tbl-wrap">
+        <table>
+          <colgroup><col style="width:12%"><col style="width:22%"><col style="width:22%"><col style="width:22%"><col style="width:22%"></colgroup>
+          <thead><tr><th>维度</th><th>RDB</th><th>AOF（纯命令）</th><th>AOF（混合 base）</th><th>结论</th></tr></thead>
+          <tbody>
+            <tr><td class="k">文件格式</td><td>二进制快照</td><td>RESP 命令文本</td><td>RDB base + 命令 incr</td><td>混合兼具</td></tr>
+            <tr><td class="k">恢复速度</td><td>快（直接载入）</td><td>慢（重放命令）</td><td>快（base 直载 + 少量 incr）</td><td>RDB ≈ 混合 &gt; 纯 AOF</td></tr>
+            <tr><td class="k">丢失窗口</td><td>取决于 save 间隔（最大可能很大）</td><td>everysec ≤1s / always ≤1 命令</td><td>同 AOF（incr 控制）</td><td>AOF 系明显更小</td></tr>
+            <tr><td class="k">体积</td><td>紧凑</td><td>大，需重写收敛</td><td>base 紧凑，整体优于纯 AOF</td><td>RDB ≤ 混合 &lt; 纯 AOF</td></tr>
+            <tr><td class="k">可读性</td><td>不可读</td><td>可读可审计</td><td>base 不可读，incr 可读</td><td>纯 AOF 最适合审计</td></tr>
+            <tr><td class="k">对写性能</td><td>几乎无感（fork 开销）</td><td>everysec 下开销小</td><td>同 AOF</td><td>三者差异可控</td></tr>
+            <tr><td class="k">适用</td><td>可接受较大丢失、要快速重启、纯缓存</td><td>敏感数据、严格不丢</td><td><b>默认推荐</b>：两者都要</td><td>混合 &gt; 纯 AOF &gt; RDB</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="points">
+        <li><b>默认行为</b>：<span class="mono">appendonly yes</span> 时启动加载以 AOF 为准；RDB 仍可保留作为兜底与复制源。</li>
+        <li><b>生产建议</b>：always 只用于"单条都不能丢"的强约束场景（吞吐损失明显）；常规业务 everysec 足够；纯缓存可关掉 AOF。</li>
+        <li><b>监控项</b>：<span class="mono">INFO persistence</span> 看 rdb_last_bgsave_status、aof_last_write_status、aof_rewrite_in_progress；重写/保存失败必须告警（文件可能停更）。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="index">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">11</span>
+      <span class="sec-title">核心源码索引</span>
+      <span class="sec-en">SOURCE INDEX</span>
+    </div>
+    <div class="idx">
+      <div class="idx-card"><span class="t">RDB 格式与保存</span><span class="f">rdb.c:2027 rdbSaveRio · rdb.c:2180 rdbSave · rdb.c:2109 rdbSaveInternal</span><span class="d">magic→aux→逐库键值→EOF→CRC64；临时文件 + rename 原子替换</span></div>
+      <div class="idx-card"><span class="t">RDB 后台保存</span><span class="f">rdb.c:2223 rdbSaveBackground · server.c:1714-1724（save 周期检查）</span><span class="d">fork 子进程 + COW；8.x dismissKvstoreBucketsMemory 减 COW</span></div>
+      <div class="idx-card"><span class="t">RDB 加载</span><span class="f">rdb.c:5124 rdbLoad · rdb.c:4677 rdbLoadRioWithLoadingCtxInternal</span><span class="d">按 opcode 流式重建，RESIZEDB 预分配</span></div>
+      <div class="idx-card"><span class="t">RDB 版本与 opcode</span><span class="f">rdb.h:21 RDB_VERSION 15 · rdb.h:101-114 全部 opcode</span><span class="d">8.x 新增 HASH_TEMPLATE 242 / KEY_META 243 / SLOT_INFO 244</span></div>
+      <div class="idx-card"><span class="t">AOF 写入链路</span><span class="f">aof.c:1661 feedAppendOnlyFile · aof.c:1399 flushAppendOnlyFile · aof.c:1470 aofWrite</span><span class="d">RESP 文本入 aof_buf，事件循环批量刷盘，<4KB 缓冲复用</span></div>
+      <div class="idx-card"><span class="t">fsync 策略</span><span class="f">server.h:661-663 AOF_FSYNC_* · aof.c:1421/1597/1600-1605</span><span class="d">always 每次刷盘即 fsync；everysec 1 秒节流</span></div>
+      <div class="idx-card"><span class="t">AOF 重写</span><span class="f">aof.c:3197 rewriteAppendOnlyFileBackground · aof.c:3117 rewriteAppendOnlyFile · server.c:1741 自动阈值</span><span class="d">fork + 快照重写 + aof_rewrite_buf 增量合并</span></div>
+      <div class="idx-card"><span class="t">Multi-Part manifest</span><span class="f">aof.c:242 aofLoadManifestFromDisk · aof.c:734 aofOpenIfNeededOnServerStart · aof.c:905 aofManifestAddNewIncr</span><span class="d">base + incr + history 三态文件链，重写即换 base 开新 incr</span></div>
+      <div class="idx-card"><span class="t">混合持久化</span><span class="f">aof.c:3140-3148 · server.h:2347 aof_use_rdb_preamble</span><span class="d">base 走 rdbSaveRio(RDBFLAGS_AOF_PREAMBLE)，incr 保持命令</span></div>
+      <div class="idx-card"><span class="t">启动加载</span><span class="f">server.c:7690 loadDataFromDisk · server.c:7745 loadAppendOnlyFiles</span><span class="d">preload-file → AOF 优先 → RDB 兜底；截断自动修复</span></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Redis 8.10.1 持久化笔记 · 源码位于 Database/redis</span>
+    <span>函数行号以当前仓库为准</span>
+  </div>
+</footer>
+
+<button id="topBtn" aria-label="回到顶部">↑</button>
+
+<script>
+(function(){
+  "use strict";
+  var chips = Array.prototype.slice.call(document.querySelectorAll('#nav .chip'));
+  var sections = chips.map(function(c){
+    var id = c.getAttribute('href').slice(1);
+    return document.getElementById(id);
+  }).filter(Boolean);
+  var topBtn = document.getElementById('topBtn');
+  var ticking = false;
+
+  function onScroll(){
+    if(!ticking){
+      requestAnimationFrame(function(){
+        var pos = window.scrollY || document.documentElement.scrollTop;
+        var active = 0;
+        for(var i=0;i<sections.length;i++){
+          if(sections[i] && sections[i].offsetTop - 90 <= pos) active = i;
+        }
+        chips.forEach(function(c,i){ c.classList.toggle('on', i===active); });
+        topBtn.classList.toggle('show', pos > 600);
+        ticking = false;
+      });
+      ticking = true;
+    }
+  }
+  window.addEventListener('scroll', onScroll, {passive:true});
+  onScroll();
+
+  topBtn.addEventListener('click', function(){ window.scrollTo({top:0, behavior:'smooth'}); });
+})();
+</script>
+</body>
+</html>
+
