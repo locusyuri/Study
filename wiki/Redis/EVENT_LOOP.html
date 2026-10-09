@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Redis 事件循环 · 单线程 Reactor 与 IO 多路复用 · Database/redis 学习笔记</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23DC382D'/%3E%3Cpath d='M16 6 26 16 16 26 6 16Z' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;900&display=swap">
+<style>
+  :root{
+    --bg:#0F141B; --bg2:#141B24; --card:#161E28; --card2:#1B2531;
+    --text:#E7EAEE; --text2:#9AA5B1; --text3:#6B7686; --line:rgba(255,255,255,.07);
+    --mono:"Cascadia Code",ui-monospace,Consolas,"SF Mono",Menlo,monospace;
+    --red:#E2594B; --red2:#DC382D;
+    --c1:#6FC7DE; --c2:#E8A87C; --c3:#6ECBA8; --c4:#B98CE8; --c5:#E88AA5; --c6:#E3D27A;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--bg);color:var(--text);
+    font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:rgba(220,56,45,.35);}
+  a{color:inherit;text-decoration:none;}
+  code,.mono,.path{font-family:var(--mono);font-size:.88em;}
+  .path{
+    color:var(--text2);background:rgba(0,0,0,.32);
+    border:1px solid rgba(255,255,255,.05);
+    padding:1px 6px;border-radius:5px;white-space:nowrap;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px;}
+
+  /* ===== 顶栏 ===== */
+  header{
+    position:sticky;top:0;z-index:50;
+    background:rgba(15,20,27,.9);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .nav{display:flex;align-items:center;gap:8px;padding:10px 0;overflow-x:auto;scrollbar-width:none;}
+  .nav::-webkit-scrollbar{display:none;}
+  .brand{font-weight:900;font-size:15px;letter-spacing:.5px;white-space:nowrap;margin-right:10px;}
+  .brand b{color:var(--red2);}
+  .chip{
+    flex:0 0 auto;padding:4px 12px;border-radius:999px;
+    font-size:12.5px;color:var(--text2);border:1px solid var(--line);
+    cursor:pointer;white-space:nowrap;transition:color .15s,border-color .15s,background .15s;
+  }
+  .chip:hover{color:var(--text);border-color:rgba(255,255,255,.22);}
+  .chip.on{color:var(--text);background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.28);}
+  .chip .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;}
+
+  /* ===== Hero ===== */
+  .hero{padding:54px 0 40px;border-bottom:1px solid var(--line);}
+  .hero .kicker{font-size:12.5px;letter-spacing:2px;color:var(--text3);margin-bottom:12px;}
+  .hero h1{font-size:38px;line-height:1.22;font-weight:900;letter-spacing:.5px;}
+  .hero h1 .hl{color:var(--red2);}
+  .hero .sub{margin-top:12px;color:var(--text2);font-size:15px;max-width:740px;}
+  .pillars{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap;}
+  .pillar{
+    border:1px solid var(--line);border-radius:10px;padding:10px 14px;
+    background:var(--card);flex:1 1 200px;min-width:0;
+  }
+  .pillar .n{font-size:12px;color:var(--text2);letter-spacing:1px;margin-bottom:3px;}
+  .pillar .t{font-size:14px;font-weight:700;}
+  .pillar .s{font-size:12px;color:var(--text3);margin-top:2px;}
+
+  /* ===== 通用区块 ===== */
+  section{padding:38px 0 8px;border-bottom:1px solid var(--line);scroll-margin-top:64px;}
+  .sec-head{display:flex;align-items:baseline;gap:12px;margin-bottom:8px;flex-wrap:wrap;}
+  .sec-no{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--red2);}
+  .sec-title{font-size:23px;font-weight:700;letter-spacing:.3px;}
+  .sec-en{font-size:12px;color:var(--text3);letter-spacing:1px;}
+  .sec-desc{color:var(--text2);font-size:13.5px;margin:2px 0 18px;max-width:860px;}
+  .sec-body{display:grid;gap:14px;min-width:0;}
+  .sec-body > *{min-width:0;max-width:100%;}
+  .sec-body p{color:var(--text2);max-width:860px;}
+  .sec-body p b,.sec-body p strong{color:var(--text);}
+  .refs{display:flex;flex-wrap:wrap;gap:8px;}
+  .ref{
+    font-family:var(--mono);font-size:11.5px;color:var(--c1);
+    background:rgba(0,0,0,.32);border:1px solid var(--line);border-radius:7px;
+    padding:5px 10px;white-space:nowrap;
+  }
+  .ref .where{color:var(--text2);}
+  .points{list-style:none;display:grid;gap:8px;}
+  .points li{position:relative;padding-left:18px;color:var(--text2);font-size:13.5px;max-width:880px;}
+  .points li::before{content:"";position:absolute;left:2px;top:10px;width:6px;height:6px;border-radius:2px;background:var(--red2);}
+  .points li b{color:var(--text);}
+  .note{
+    font-size:12.5px;color:var(--text3);background:rgba(255,255,255,.03);
+    border:1px solid var(--line);border-left:3px solid var(--red2);
+    border-radius:8px;padding:9px 13px;max-width:880px;
+  }
+  .note b{color:var(--text2);}
+
+  /* ===== 表格 ===== */
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;min-width:0;max-width:100%;}
+  table{width:100%;border-collapse:collapse;table-layout:fixed;min-width:660px;}
+  th,td{padding:9px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);}
+  thead th{background:var(--card2);font-size:12.5px;color:var(--text2);font-weight:600;}
+  td{font-size:13px;color:var(--text2);}
+  td b,td .k{color:var(--text);font-weight:600;}
+  tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:rgba(255,255,255,.025);}
+  .mono-cell{font-family:var(--mono);font-size:11.5px;color:var(--c1);white-space:nowrap;}
+  .tag{
+    display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;
+    border:1px solid var(--line);margin-left:4px;vertical-align:1px;
+  }
+  .tag.cur{color:#0F141B;background:var(--c3);border-color:var(--c3);}
+  .tag.new{color:#0F141B;background:var(--c6);border-color:var(--c6);}
+  .tag.dep{color:var(--text3);background:transparent;border-color:rgba(255,255,255,.15);}
+  .tag.mod{color:#0F141B;background:var(--c1);border-color:var(--c1);}
+
+  /* ===== 代码块 ===== */
+  .code{
+    font-family:var(--mono);font-size:12.5px;line-height:1.75;
+    background:rgba(0,0,0,.38);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;white-space:pre;
+  }
+  .code .kw{color:var(--c1);font-weight:700;}
+  .code .num{color:var(--c6);}
+  .code .cm{color:var(--text3);}
+  .code .ok{color:var(--c3);font-weight:700;}
+
+  /* ===== 决策流程 / 管道 ===== */
+  .pipe{display:flex;flex-wrap:wrap;gap:0;align-items:stretch;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 14px;min-width:0;}
+  .pstep{flex:1 1 150px;min-width:150px;padding:6px 8px;}
+  .pstep .n{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--red2);color:#fff;
+    align-items:center;justify-content:center;font-size:12px;font-weight:700;font-family:var(--mono);
+    vertical-align:middle;}
+  .pstep .t{display:inline-block;vertical-align:middle;font-size:13.5px;font-weight:700;padding-left:6px;}
+  .pstep .f{display:block;font-family:var(--mono);font-size:10.5px;color:var(--text2);margin-top:5px;line-height:1.5;}
+  .parrow{color:var(--red2);font-weight:700;font-size:18px;align-self:center;padding:0 2px;}
+
+  /* ===== 时间线 ===== */
+  .tl{display:grid;gap:0;border-left:2px solid rgba(255,255,255,.12);margin-left:6px;padding-left:18px;}
+  .tl-item{position:relative;padding:0 0 16px;}
+  .tl-item::before{
+    content:"";position:absolute;left:-25px;top:7px;width:10px;height:10px;border-radius:50%;
+    background:var(--bg);border:2px solid var(--red2);
+  }
+  .tl-item .tt{font-size:14px;font-weight:700;}
+  .tl-item .td{font-size:12.5px;color:var(--text2);margin-top:2px;max-width:820px;}
+  .tl-item .tf{font-family:var(--mono);font-size:11px;color:var(--c1);margin-top:3px;}
+
+  /* ===== 源码索引 ===== */
+  .idx{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;}
+  .idx-card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:11px 13px;}
+  .idx-card .t{font-size:13.5px;font-weight:700;color:var(--c1);}
+  .idx-card .f{font-family:var(--mono);font-size:11px;color:var(--text2);margin:4px 0;display:block;}
+  .idx-card .d{font-size:12px;color:var(--text3);line-height:1.6;}
+
+  footer{padding:30px 0 44px;color:var(--text3);font-size:12.5px;}
+  footer .wrap{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+
+  #topBtn{
+    position:fixed;right:22px;bottom:22px;width:40px;height:40px;border-radius:10px;
+    background:var(--card2);border:1px solid var(--line);color:var(--text2);
+    font-size:16px;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .2s;
+    font-family:var(--mono);z-index:60;
+  }
+  #topBtn.show{opacity:1;pointer-events:auto;}
+  #topBtn:hover{color:var(--text);border-color:rgba(255,255,255,.25);}
+
+  @media (max-width:760px){
+    .wrap{padding:0 16px;}
+    .hero h1{font-size:28px;}
+    .nav{padding:8px 0;}
+    .chip{min-height:44px;display:inline-flex;align-items:center;padding:6px 13px;}
+    .pipe{flex-direction:column;gap:8px;}
+    .parrow{transform:rotate(90deg);align-self:flex-start;padding-left:10px;}
+    .ref{white-space:normal;overflow-wrap:anywhere;max-width:100%;}
+    section{padding:28px 0 4px;}
+  }
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto;}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <nav class="nav" id="nav">
+      <span class="brand">Redis <b>事件循环</b></span>
+      <a class="chip" href="#why"><span class="dot" style="background:var(--red2)"></span>为什么需要</a>
+      <a class="chip" href="#structs"><span class="dot" style="background:var(--c1)"></span>核心结构</a>
+      <a class="chip" href="#mux"><span class="dot" style="background:var(--c2)"></span>多路复用抽象</a>
+      <a class="chip" href="#epoll"><span class="dot" style="background:var(--c6)"></span>epoll 实现</a>
+      <a class="chip" href="#loop"><span class="dot" style="background:var(--c3)"></span>事件主循环</a>
+      <a class="chip" href="#client"><span class="dot" style="background:var(--c4)"></span>客户端生命周期</a>
+      <a class="chip" href="#time"><span class="dot" style="background:var(--c5)"></span>时间事件</a>
+      <a class="chip" href="#hooks"><span class="dot" style="background:var(--c2)"></span>beforeSleep</a>
+      <a class="chip" href="#iothread"><span class="dot" style="background:var(--c6)"></span>8.x IO 线程</a>
+      <a class="chip" href="#netty"><span class="dot" style="background:var(--c3)"></span>与 Netty 对比</a>
+      <a class="chip" href="#index"><span class="dot" style="background:var(--text3)"></span>源码索引</a>
+    </nav>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="wrap">
+    <div class="kicker">学习笔记 · 源码 Database/redis · 8.10.1</div>
+    <h1>Redis <span class="hl">事件循环</span>：单线程如何扛住高并发</h1>
+    <p class="sub">Redis 的高性能不靠多线程，而是一个线程把所有事做对：<b>ae 事件库</b>把"fd 可读可写"与"定时任务"统一成事件，交给 <b>epoll</b> 以 O(1) 复杂度等待就绪；一个循环内完成读命令、执行、写回复，全程无锁。8.x 又演进为 <b>多 Reactor</b>：IO 线程各自跑独立事件循环，命令执行仍回主线程。</p>
+    <div class="pillars">
+      <div class="pillar"><div class="n">单线程 Reactor</div><div class="t">aeMain 主循环</div><div class="s">文件事件 + 时间事件，无锁顺序执行</div></div>
+      <div class="pillar"><div class="n">双事件模型</div><div class="t">AE_READABLE / AE_WRITABLE</div><div class="s">fd 数组 O(1) 注册 · 时间链表</div></div>
+      <div class="pillar"><div class="n">epoll 就绪等待</div><div class="t">aeApiPoll</div><div class="s">水平触发 · O(1) 复杂度 · 动态扩展</div></div>
+      <div class="pillar"><div class="n">8.x 多 Reactor</div><div class="t">IO 线程独立事件循环</div><div class="s">event notifier 通信 · 命令回主线程</div></div>
+    </div>
+  </div>
+</div>
+
+<section id="why">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">01</span>
+      <span class="sec-title">为什么需要事件循环</span>
+      <span class="sec-en">WHY EVENT-DRIVEN</span>
+    </div>
+    <p class="sec-desc">最朴素的服务器模型是"一连接一线程"：每个客户端占用一个阻塞线程，等待它发命令。连接数一多，线程数爆炸、上下文切换与锁竞争吞噬性能。Redis 换了一条路：<b>单线程 + 非阻塞 IO + 多路复用</b>。</p>
+    <div class="sec-body">
+      <div class="tl">
+        <div class="tl-item"><div class="tt">阻塞式 accept/read</div><div class="td">每连接一个线程，线程阻塞在 read 上等待数据。10 万连接 = 10 万线程，内存与调度开销不可承受。</div><div class="tf">一连接一线程模型（Java BIO 时代）</div></div>
+        <div class="tl-item"><div class="tt">非阻塞 + 用户态轮询</div><div class="td">fd 设 O_NONBLOCK，循环里逐个 read 试探。浪费 CPU 且代码丑陋。</div><div class="tf">O(N) 轮询</div></div>
+        <div class="tl-item"><div class="tt">select / poll</div><div class="td">内核帮你判断"哪些 fd 就绪"，但每次调用要拷贝整个 fd 集合，线性扫描，fd 数量受限。</div><div class="tf">O(N) 就绪检测 · 上限 1024（select）</div></div>
+        <div class="tl-item"><div class="tt">epoll（Linux）</div><div class="td">红黑树注册关注、就绪链表返回，<b>只拷贝就绪的 fd</b>，复杂度 O(就绪数)。</div><div class="tf">O(K) 返回 · 水平/边沿触发</div></div>
+        <div class="tl-item"><div class="tt">事件循环（Redis 选择）</div><div class="td">一个线程：先问 epoll "谁就绪了"，再按就绪列表逐个执行回调。没有锁、没有切换、没有线程栈开销。</div><div class="tf">aeMain → aeProcessEvents → aeApiPoll</div></div>
+      </div>
+      <ul class="points">
+        <li><b>为什么 Redis 敢单线程</b>：它的数据结构都在内存，单条命令微秒级完成；瓶颈从来不是 CPU，而是网络 IO 等待。多路复用让一个线程同时"等"几万个连接。</li>
+        <li><b>单线程的三个红利</b>：无锁（数据一致性靠顺序执行保证）、无上下文切换（时间片全花在命令上）、行为可预测（不存在并发 bug 与死锁）。</li>
+        <li><b>代价</b>：任何一条命令阻塞（如慢的 KEYS、大 key 删除）会卡住所有客户端 —— 所以才有 <span class="mono">SCAN / UNLINK</span> 这些渐进式命令，以及 8.x 的 IO 线程分担网络读写。</li>
+      </ul>
+      <div class="note"><b>记忆锚点</b>：事件循环 = "一个线程问内核：谁就绪了？然后挨个处理"。它把"等 IO"的时间让给别的连接，自己永远在干活或睡着，绝不空转轮询。</div>
+    </div>
+  </div>
+</section>
+
+<section id="structs">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">02</span>
+      <span class="sec-title">aeEventLoop：事件循环的心脏</span>
+      <span class="sec-en">CORE STRUCTS</span>
+    </div>
+    <p class="sec-desc">整个事件机制由三张表构成：<b>文件事件数组</b>（fd 作下标，O(1) 注册）、<b>就绪事件数组</b>（一次 poll 的结果）、<b>时间事件链表</b>（周期/一次性定时器）。它们被 <span class="path">aeEventLoop</span>（<span class="path">ae.h:79-93</span>）统一持有。</p>
+    <div class="sec-body">
+      <div class="code">
+<span class="cm">/* ae.h:79-93 —— 事件循环本体 */</span><br>
+<span class="kw">typedef struct</span> aeEventLoop {<br>
+    <span class="num">int</span> maxfd;             <span class="cm">/* 当前注册的最大 fd */</span><br>
+    <span class="num">int</span> setsize;           <span class="cm">/* 数组容量（maxclients + 32）*/</span><br>
+    aeFileEvent *events;    <span class="cm">/* 文件事件数组，events[fd] */</span><br>
+    aeFiredEvent *fired;    <span class="cm">/* 就绪事件数组（本次 poll 结果）*/</span><br>
+    aeTimeEvent *timeEventHead; <span class="cm">/* 时间事件链表头 */</span><br>
+    <span class="num">int</span> stop;             <span class="cm">/* 置 1 退出主循环 */</span><br>
+    <span class="kw">void</span> *apidata;        <span class="cm">/* 多路复用私有态（epoll → aeApiState）*/</span><br>
+    aeBeforeSleepProc *beforesleep; <span class="cm">/* 阻塞等待前回调 */</span><br>
+    aeBeforeSleepProc *aftersleep;  <span class="cm">/* 唤醒后回调 */</span><br>
+} aeEventLoop;
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <colgroup><col style="width:22%"><col style="width:14%"><col style="width:64%"></colgroup>
+          <thead><tr><th>掩码常量</th><th>值</th><th>含义</th></tr></thead>
+          <tbody>
+            <tr><td class="k">AE_NONE</td><td class="mono-cell">0</td><td>未注册任何事件（该 fd 槽位空闲）</td></tr>
+            <tr><td class="k">AE_READABLE</td><td class="mono-cell">1</td><td>fd 可读时触发读回调（rfileProc）</td></tr>
+            <tr><td class="k">AE_WRITABLE</td><td class="mono-cell">2</td><td>fd 可写时触发写回调（wfileProc）</td></tr>
+            <tr><td class="k">AE_BARRIER</td><td class="mono-cell">4</td><td>写屏障：同一次循环中"先写后读"，用于写盘前先回包等顺序保证（<span class="path">ae.h:24-28</span>）</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">结构</span> ae.h:79-93 aeEventLoop</span>
+        <span class="ref"><span class="where">文件事件</span> ae.h:52-57 aeFileEvent</span>
+        <span class="ref"><span class="where">时间事件</span> ae.h:60-70 aeTimeEvent</span>
+        <span class="ref"><span class="where">就绪事件</span> ae.h:73-76 aeFiredEvent</span>
+      </div>
+      <ul class="points">
+        <li><b>数组 vs 链表的选择</b>：文件事件用数组 —— fd 是天然下标，<span class="mono">events[fd]</span> 注册/查询 O(1)；时间事件数量少且无序，用双向链表，注册 O(1) 头插，删除打标记（<span class="path">ae.c:241 AE_DELETED_EVENT_ID</span>）。</li>
+        <li><b>一次 poll 的契约</b>：<span class="mono">aeApiPoll</span> 把就绪 fd 写入 <span class="mono">fired[]</span>（fd + mask），主循环按数组顺序处理 —— 就绪多少处理多少。</li>
+        <li><b>生命周期</b>：<span class="mono">aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR)</span>（<span class="path">server.c:3084</span>）—— 数组容量 = maxclients + 32，随 <span class="mono">aeResizeSetSize</span>（<span class="path">ae.c:107</span>）动态扩展。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="mux">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">03</span>
+      <span class="sec-title">多路复用抽象层</span>
+      <span class="sec-en">MULTIPLEXING ABSTRACTION</span>
+    </div>
+    <p class="sec-desc">ae 不直接依赖 epoll：编译期按平台选择 <span class="mono">ae_epoll.c / ae_kqueue.c / ae_evport.c / ae_select.c</span> 之一，统一暴露 7 个函数。Redis 只认这套 API，换平台换实现。</p>
+    <div class="sec-body">
+      <div class="tbl-wrap">
+        <table>
+          <colgroup><col style="width:20%"><col style="width:26%"><col style="width:54%"></colgroup>
+          <thead><tr><th>平台</th><th>实现文件</th><th>就绪检测模型</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Linux</td><td class="mono-cell">ae_epoll.c</td><td>epoll：红黑树注册 + 就绪链表，O(就绪数) 返回</td></tr>
+            <tr><td class="k">macOS / BSD</td><td class="mono-cell">ae_kqueue.c</td><td>kqueue：内核事件队列，类似 epoll 的 O(1) 模型</td></tr>
+            <tr><td class="k">Solaris</td><td class="mono-cell">ae_evport.c</td><td>Event Ports：Solaris 原生事件机制</td></tr>
+            <tr><td class="k">通用兜底</td><td class="mono-cell">ae_select.c</td><td>select：线性扫描 fd_set，1024 上限，仅作最后防线</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">抽象层切换</span> ae.c 顶部 #ifdef HAVE_EPOLL / HAVE_KQUEUE / HAVE_EVPORT</span>
+        <span class="ref"><span class="where">API 契约</span> aeApiCreate / aeApiResize / aeApiFree / aeApiAddEvent / aeApiDelEvent / aeApiPoll / aeApiName</span>
+      </div>
+      <ul class="points">
+        <li><b>统一 API 清单</b>：Create（建 epoll/kqueue 实例）、AddEvent / DelEvent（增减关注）、Poll（等待就绪）、Resize（扩 events 数组）、Name（调试打印，epoll 返回 "epoll"）。</li>
+        <li><b>apidata 的作用</b>：<span class="mono">aeEventLoop.apidata</span> 是个 void 指针，指向各平台私有状态（epoll 的 <span class="mono">aeApiState</span>）—— 抽象层的"插件槽位"。</li>
+        <li><b>编译期而非运行时</b>：无动态加载、无函数指针表开销，性能路径上就是直接调用。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="epoll">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">04</span>
+      <span class="sec-title">epoll 实现细节</span>
+      <span class="sec-en">EPOLL ADAPTER</span>
+    </div>
+    <p class="sec-desc">Linux 上 Redis 用 <span class="mono">ae_epoll.c</span>。私有状态只有两个字段：<span class="mono">epfd</span>（epoll 实例）与 <span class="mono">events</span>（epoll_event 就绪数组）。</p>
+    <div class="sec-body">
+      <div class="code">
+<span class="cm">/* ae_epoll.c:14-17 私有状态 */</span><br>
+<span class="kw">typedef struct</span> aeApiState {<br>
+    <span class="num">int</span> epfd;                    <span class="cm">/* epoll 文件描述符 */</span><br>
+    <span class="kw">struct</span> epoll_event *events;  <span class="cm">/* 就绪事件数组，容量 = setsize */</span><br>
+} aeApiState;<br>
+<br>
+<span class="cm">/* ae_epoll.c:89-115 等待就绪 —— 核心 */</span><br>
+retval = epoll_wait(state-&gt;epfd, state-&gt;events, eventLoop-&gt;setsize,<br>
+        tvp ? (tvp-&gt;tv_sec*1000 + (tvp-&gt;tv_usec+999)/1000) : -1);<br>
+<span class="kw">for</span> (j = 0; j &lt; numevents; j++) {<br>
+    <span class="kw">if</span> (e-&gt;events &amp; EPOLLIN)  mask |= AE_READABLE;<br>
+    <span class="kw">if</span> (e-&gt;events &amp; EPOLLOUT) mask |= AE_WRITABLE;<br>
+    <span class="kw">if</span> (e-&gt;events &amp; EPOLLERR) mask |= AE_WRITABLE|AE_READABLE;<br>
+    <span class="kw">if</span> (e-&gt;events &amp; EPOLLHUP) mask |= AE_WRITABLE|AE_READABLE;<br>
+    eventLoop-&gt;fired[j].fd = e-&gt;data.fd;<br>
+    eventLoop-&gt;fired[j].mask = mask;<br>
+}
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <colgroup><col style="width:20%"><col style="width:36%"><col style="width:44%"></colgroup>
+          <thead><tr><th>函数</th><th>行号</th><th>要点</th></tr></thead>
+          <tbody>
+            <tr><td class="k">aeApiCreate</td><td class="mono-cell">ae_epoll.c:19-37</td><td><span class="mono">epoll_create(1024)</span>（hint，内核实际按需扩展）+ <span class="mono">anetCloexec</span> 防泄漏到子进程</td></tr>
+            <tr><td class="k">aeApiAddEvent</td><td class="mono-cell">ae_epoll.c:54-69</td><td>已监控则 <span class="mono">EPOLL_CTL_MOD</span>，否则 <span class="mono">EPOLL_CTL_ADD</span>；AE_READABLE→EPOLLIN、AE_WRITABLE→EPOLLOUT</td></tr>
+            <tr><td class="k">aeApiPoll</td><td class="mono-cell">ae_epoll.c:89-115</td><td>epoll_wait 超时由最近时间事件算出；EPOLLERR/HUP 同时置读写位</td></tr>
+            <tr><td class="k">aeApiResize</td><td class="mono-cell">ae_epoll.c:39-44</td><td>zrealloc 就绪数组到新 setsize（客户端数增长时）</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">等待</span> ae_epoll.c:89 aeApiPoll</span>
+        <span class="ref"><span class="where">注册</span> ae_epoll.c:54 aeApiAddEvent</span>
+        <span class="ref"><span class="where">创建</span> ae_epoll.c:19 aeApiCreate</span>
+      </div>
+      <ul class="points">
+        <li><b>水平触发（LT）</b>：Redis 不设 EPOLLET，保持默认水平触发 —— 没读完的数据下次 epoll_wait 继续报告，配合非阻塞 read 循环不会饿死其他连接。</li>
+        <li><b>epoll vs select</b>：select 每次调用把 fd_set 从用户态拷进内核、线性扫描、<span class="mono">FD_SETSIZE</span> 1024 上限、触发后要重新注册；epoll 用红黑树维护关注、就绪链表只拷就绪项、O(1) 增删。这就是万级连接仍能扛住的底层原因。</li>
+        <li><b>超时换算</b>：timeval（秒+微秒）换算成毫秒给 epoll_wait：<span class="mono">tv_sec*1000 + (tv_usec+999)/1000</span>；无时间事件时传 -1 无限等待（<span class="path">ae_epoll.c:93-94</span>）。</li>
+        <li><b>信号中断</b>：epoll_wait 返回 -1 且 errno==EINTR 时不 panic，继续循环 —— 事件循环必须对信号健壮（<span class="path">ae_epoll.c:110</span>）。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="loop">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">05</span>
+      <span class="sec-title">事件主循环：一次迭代做了什么</span>
+      <span class="sec-en">MAIN LOOP</span>
+    </div>
+    <p class="sec-desc"><span class="mono">aeMain</span>（<span class="path">ae.c:497</span>）就是一个 <span class="mono">while(!eventLoop-&gt;stop)</span>：每圈调用 <span class="mono">aeProcessEvents</span>（<span class="path">ae.c:365</span>）处理所有事件。一次迭代的完整顺序如下。</p>
+    <div class="sec-body">
+      <div class="pipe">
+        <div class="pstep"><span class="n">1</span><span class="t">beforeSleep 钩子</span><span class="f">写缓冲批量 flush · AOF 刷盘 · IO 线程协调</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">2</span><span class="t">计算 poll 超时</span><span class="f">最近时间事件决定阻塞多久（AE_DONT_WAIT 则 0）</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">3</span><span class="t">aeApiPoll 等待</span><span class="f">epoll_wait 阻塞，直到有 fd 就绪或超时</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">4</span><span class="t">afterSleep 钩子</span><span class="f">线程标记恢复 · 重新取 GIL</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">5</span><span class="t">分发文件事件</span><span class="f">逐个 fired[]：先读后写，AE_BARRIER 反转</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">6</span><span class="t">处理时间事件</span><span class="f">processTimeEvents 遍历链表（serverCron 等）</span></div>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">主循环</span> ae.c:497 aeMain</span>
+        <span class="ref"><span class="where">一次迭代</span> ae.c:365 aeProcessEvents</span>
+        <span class="ref"><span class="where">超时计算</span> ae.c:394 usUntilEarliestTimer</span>
+        <span class="ref"><span class="where">文件事件分发</span> ae.c:414-466</span>
+        <span class="ref"><span class="where">时间事件</span> ae.c:468-470 processTimeEvents</span>
+      </div>
+      <ul class="points">
+        <li><b>读先于写（默认）</b>：先执行读回调（可能产生回复），再执行写回调（把回复发出去）—— 一条命令在同一轮里"处理完就能回包"，减少延迟（<span class="path">ae.c:420-430</span> 注释）。</li>
+        <li><b>AE_BARRIER 反转</b>：持久化场景要求"先落盘再回包"（如每次写命令后 fsync），给写事件挂 BARRIER，同轮内先写后读（<span class="path">ae.c:431 / 455-463</span>）。</li>
+        <li><b>事件有效性复查</b>：<span class="mono">fe-&gt;mask &amp; mask &amp; AE_READABLE</span> —— 处理读回调时可能删掉了同一个 fd 的事件（如客户端断开），分发前要确认事件还注册着（<span class="path">ae.c:433-438</span>）。</li>
+        <li><b>不空转</b>：没有文件事件且没有时间事件时，epoll_wait 无限阻塞（tvp=NULL）；只有显式 AE_DONT_WAIT 才 0 超时立即返回（<span class="path">ae.c:390-403</span>）—— CPU 永远不为"等"而烧。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="client">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">06</span>
+      <span class="sec-title">一个客户端的完整生命周期</span>
+      <span class="sec-en">CLIENT LIFECYCLE</span>
+    </div>
+    <p class="sec-desc">事件循环的意义在连接处理上最直观：一个连接从 accept 到回复，每一步都是一次事件回调。8.x 用 <b>connection 抽象层</b>统一 TCP / TLS / Unix socket，回调通过函数表注册。</p>
+    <div class="sec-body">
+      <div class="pipe">
+        <div class="pstep"><span class="n">1</span><span class="t">监听 fd 可读 → accept</span><span class="f">connSocketAcceptHandler：while(max--) anetTcpAccept</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">2</span><span class="t">createClient</span><span class="f">分配 client 结构，注册读回调 readQueryFromClient</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">3</span><span class="t">读事件触发</span><span class="f">readQueryFromClient → 非阻塞 read 填 querybuf</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">4</span><span class="t">解析并执行</span><span class="f">processInputBuffer → processCommandAndResetClient → processCommand</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">5</span><span class="t">写回复</span><span class="f">addReply 进 client-&gt;reply 缓冲，挂 AE_WRITABLE</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">6</span><span class="t">批量 flush</span><span class="f">beforeSleep：handleClientsWithPendingWrites 一次写光</span></div>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">accept</span> socket.c:301 connSocketAcceptHandler · socket.c:397 accept_handler 注册</span>
+        <span class="ref"><span class="where">建客户端</span> networking.c:122 createClient · networking.c:1666 acceptCommonHandler</span>
+        <span class="ref"><span class="where">读</span> networking.c:3894 readQueryFromClient · socket.c:165 connSocketRead</span>
+        <span class="ref"><span class="where">执行</span> networking.c:3690 processInputBuffer · networking.c:3555 processCommandAndResetClient</span>
+        <span class="ref"><span class="where">写</span> networking.c:2958 handleClientsWithPendingWrites</span>
+      </div>
+      <ul class="points">
+        <li><b>监听注册</b>：<span class="mono">listenToPort</span> 里对每个监听 fd <span class="mono">aeCreateFileEvent(el, fd, AE_READABLE, accept_handler, sfd)</span>（<span class="path">server.c:2839</span>）—— accept 也是普通文件事件。</li>
+        <li><b>一次 accept 上限</b>：<span class="mono">server.max_new_conns_per_cycle</span> 限制单轮 accept 数量（<span class="path">socket.c:303</span>），防止惊群式循环把 CPU 打满、饿死已有连接。</li>
+        <li><b>读写都是非阻塞</b>：connSocketRead 对 EAGAIN 返回"没数据了"，写对 EAGAIN 表示"内核缓冲满，下次再试"（<span class="path">socket.c:135-176</span>）—— 非阻塞 + 事件驱动是配套的。</li>
+        <li><b>写事件是"按需"的</b>：回复先进内存缓冲，能直接写完就不注册写事件（省一次 epoll 调用）；写不完才挂 AE_WRITABLE，可写时继续（<span class="mono">clients_pending_write</span> 机制，<span class="path">networking.c:2958</span>）。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="time">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">07</span>
+      <span class="sec-title">时间事件与 serverCron</span>
+      <span class="sec-en">TIME EVENTS</span>
+    </div>
+    <p class="sec-desc">除了文件事件，ae 还管理<b>时间事件</b>：到点执行一次（一次性）或周期执行。Redis 把核心后台任务都挂在 serverCron 这一个时间事件上，内部再细分频率。</p>
+    <div class="sec-body">
+      <div class="code">
+<span class="cm">/* server.c:3201 —— 注册 serverCron，周期 1ms 粒度 */</span><br>
+aeCreateTimeEvent(server.el, <span class="num">1</span>, serverCron, NULL, NULL);<br>
+<br>
+<span class="cm">/* server.c:1562 —— serverCron 内部按频率分工（hz 默认 10）*/</span><br>
+<span class="num">int</span> serverCron(<span class="kw">struct</span> aeEventLoop *eventLoop, <span class="kw">long long</span> id, <span class="kw">void</span> *clientData) {<br>
+    server.cronloops++;                    <span class="cm">/* server.c:1855 循环计数 */</span><br>
+    run_with_period(<span class="num">100</span>)  { ... }      <span class="cm">/* 每 100ms：内存采样 / 客户端超时 */</span><br>
+    run_with_period(<span class="num">1000</span>) { ... }      <span class="cm">/* 每 1s：过期键清理 / save 检查 / 重写检查 */</span><br>
+}
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">创建时间事件</span> ae.c:218 aeCreateTimeEvent</span>
+        <span class="ref"><span class="where">处理时间事件</span> ae.c:468-470 processTimeEvents</span>
+        <span class="ref"><span class="where">注册</span> server.c:3201（1ms 周期）</span>
+        <span class="ref"><span class="where">节流宏</span> server.h:836 run_with_period · server.h:119 CONFIG_DEFAULT_HZ 10</span>
+      </div>
+      <ul class="points">
+        <li><b>时间事件结构</b>：<span class="mono">aeTimeEvent</span> 链表节点 —— id（单调递增）、when（单调时钟时间点）、timeProc、finalizerProc、refcount（防止递归中释放，<span class="path">ae.h:60-70</span>）。</li>
+        <li><b>执行与删除</b>：processTimeEvents 遍历链表，到点调用 timeProc；返回 <span class="mono">AE_NOMORE(-1)</span> 则删除；删除是"打标记"（<span class="mono">AE_DELETED_EVENT_ID</span>），避免正在遍历时改链表（<span class="path">ae.c:241</span>）。</li>
+        <li><b>影响主循环阻塞</b>：最近一个时间事件的剩余时间就是 epoll_wait 的超时（<span class="path">ae.c:394 usUntilEarliestTimer</span>）—— 时间事件和文件事件共享同一个"醒来"。</li>
+        <li><b>serverCron 职责</b>：过期键清理、save / AOF 重写触发检查、客户端超时断开、集群 cron、模块 cron 等 —— 全部后台任务集中于此（<span class="path">server.c:1562-1857</span>）。</li>
+        <li><b>动态频率</b>：hz 配置（默认 10）决定 cronloops 节奏，run_with_period 按 <span class="mono">1000/hz</span> 换算（<span class="path">server.h:836</span>）—— 客户端多时调高 hz 换更快的过期处理。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="hooks">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">08</span>
+      <span class="sec-title">beforeSleep / afterSleep 钩子</span>
+      <span class="sec-en">LOOP HOOKS</span>
+    </div>
+    <p class="sec-desc">主循环每次阻塞等 epoll 之前调用 <span class="mono">beforeSleep</span>，醒来后调用 <span class="mono">afterSleep</span>（<span class="path">ae.c:382 / 411</span>）。这两个钩子把"每轮都要做的杂事"集中起来，是 Redis 架构里最容易被忽略的调度点。</p>
+    <div class="sec-body">
+      <div class="tbl-wrap">
+        <table>
+          <colgroup><col style="width:24%"><col style="width:38%"><col style="width:38%"></colgroup>
+          <thead><tr><th>钩子</th><th>执行时机</th><th>典型职责</th></tr></thead>
+          <tbody>
+            <tr><td class="k">beforeSleep</td><td class="mono-cell">aeProcessEvents:382 · 每次 poll 前</td><td><span class="mono">handleClientsWithPendingWrites</span>（批量写回复，<span class="path">server.c:1963</span>）· updatePeakMemory · AOF 刷盘（flushAppendOnlyFile）· IO 线程协调</td></tr>
+            <tr><td class="k">afterSleep</td><td class="mono-cell">aeProcessEvents:411 · poll 返回后</td><td>IO 线程唤醒标记恢复（<span class="path">server.c:2162 afterSleep</span>）· 模块 GIL 重新获取</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">注册</span> server.c:3216-3217 aeSetBeforeSleepProc / aeSetAfterSleepProc</span>
+        <span class="ref"><span class="where">主循环内调用</span> ae.c:382（前）/ ae.c:411（后）</span>
+        <span class="ref"><span class="where">主线程钩子</span> server.c:1947 beforeSleep · server.c:2162 afterSleep</span>
+        <span class="ref"><span class="where">IO 线程钩子</span> iothread.c:847 IOThreadBeforeSleep · iothread.c:884 IOThreadAfterSleep</span>
+      </div>
+      <ul class="points">
+        <li><b>写回复的批量优化</b>：命令执行时只把回复追加进 <span class="mono">client-&gt;reply</span> 内存缓冲并标记 <span class="mono">clients_pending_write</span>；beforeSleep 里统一 <span class="mono">handleClientsWithPendingWrites</span> 一次系统调用写多个客户端 —— 避免每条回复一次 write 的小包开销（<span class="path">networking.c:2958</span>）。</li>
+        <li><b>AOF 刷盘挂这里</b>：<span class="mono">flushAppendOnlyFile</span> 在 beforeSleep 中调用 —— 上一轮的命令日志，在"睡觉前"统一落盘（与持久化笔记的写入链路对应）。</li>
+        <li><b>两种 afterSleep 语义</b>：主线程恢复处理 IO 线程送回的命令；IO 线程的 afterSleep 把 running 置 1，通知主线程"可以直接投递客户端、不用再发通知"（<span class="path">iothread.c:884-890</span>）。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="iothread">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">09</span>
+      <span class="sec-title">8.x IO 线程：多 Reactor 架构</span>
+      <span class="sec-en">THREADED IO</span>
+    </div>
+    <p class="sec-desc">8.0 起 IO 线程不再是 6.x/7.x 的"主线程分配读写的从属线程"，而是<b>每个 IO 线程拥有自己的 aeEventLoop</b>（<span class="path">iothread.c:1006</span>），自己跑 <span class="mono">aeMain</span>，负责一批客户端的读写与部分后台任务；命令的<b>执行</b>仍送回主线程 —— 数据一致性不破。</p>
+    <div class="sec-body">
+      <div class="pipe">
+        <div class="pstep"><span class="n">1</span><span class="t">主线程分配客户端</span><span class="f">assignClientToIOThread → pending 列表（iothread.c:334）</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">2</span><span class="t">event notifier 通知</span><span class="f">写管道唤醒目标 IO 线程（iothread.c:515）</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">3</span><span class="t">IO 线程读 + 解析</span><span class="f">自己事件循环里 connSocketRead / 解析命令（handleClientsFromMainThread）</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">4</span><span class="t">送回主线程执行</span><span class="f">sendPendingClientsToMainThreadIfNeeded（iothread.c:881）</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">5</span><span class="t">主线程执行命令</span><span class="f">processCommand，写回复进缓冲</span></div>
+        <div class="parrow">→</div>
+        <div class="pstep"><span class="n">6</span><span class="t">IO 线程代写</span><span class="f">回复可再由 IO 线程 flush，进一步卸载主线程</span></div>
+      </div>
+      <div class="refs">
+        <span class="ref"><span class="where">初始化</span> iothread.c:991 initThreadedIO</span>
+        <span class="ref"><span class="where">线程主体</span> iothread.c:985-987 IOThreadMain（自带 aeMain）</span>
+        <span class="ref"><span class="where">分发</span> iothread.c:503 sendPendingClientsToIOThreads</span>
+        <span class="ref"><span class="where">线程内 cron</span> iothread.c:958 IOThreadCron</span>
+      </div>
+      <ul class="points">
+        <li><b>每线程独立事件循环</b>：<span class="mono">t-&gt;el = aeCreateEventLoop(...)</span>（<span class="path">iothread.c:1006</span>），注册 notifier 读事件与 IOThreadCron 时间事件后 <span class="mono">pthread_create</span>（<span class="path">iothread.c:1041</span>）—— 一个 IO 线程就是一个完整的小 Redis 事件循环。</li>
+        <li><b>通信靠 event notifier</b>：主线程把客户端列表 <span class="mono">listJoin</span> 进线程的 pending 列表后触发 notifier（管道写一字节），IO 线程被自己的事件循环唤醒（<span class="path">iothread.c:503-519</span>）；反过来主线程也有 notifier 接 IO 线程的回传（<span class="path">iothread.c:1052 handleClientsFromIOThread</span>）。</li>
+        <li><b>缓存预取优化</b>：<span class="mono">prefetchIOThreadCommands</span> 两阶段 —— 先批量发 prefetch 指令把 client 结构预取进缓存行，再访问数据，减少缓存缺失（<span class="path">iothread.c:524-552</span>）。</li>
+        <li><b>线程内后台任务</b>：IOThreadCron 处理客户端 cron（超时、压缩等，<span class="path">iothread.c:893</span>），把主线程从 O(客户端数) 的例行扫描里解放出来。</li>
+        <li><b>上限与开关</b>：<span class="mono">io-threads</span> 配置（默认关闭，≤ <span class="mono">IO_THREADS_MAX_NUM 128</span>，<span class="path">server.h:226</span>）；开启后命令执行路径仍是单线程的，只是 IO 从主线程卸载。</li>
+      </ul>
+      <div class="note"><b>记忆锚点</b>：8.x 的 IO 线程 = "读得快、写得多"交给专用线程，<b>执行还是主线程</b>。它拆的是网络 IO 的墙，不拆数据一致性的墙 —— 所以不会引入普通多线程模型的锁地狱。</div>
+    </div>
+  </div>
+</section>
+
+<section id="netty">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">10</span>
+      <span class="sec-title">与 Netty 对比：Reactor 的两种实现</span>
+      <span class="sec-en">REDIS vs NETTY</span>
+    </div>
+    <p class="sec-desc">Java 侧与 Redis 最像的是 Netty：都是事件驱动 + 多路复用。差别在于 —— Redis 为了"无锁的内存操作"坚持单线程执行；Netty 面向通用网络框架，用主从多线程换取更高吞吐。8.x 的 IO 线程让两者更接近了。</p>
+    <div class="sec-body">
+      <div class="tbl-wrap">
+        <table>
+          <colgroup><col style="width:18%"><col style="width:30%"><col style="width:30%"><col style="width:22%"></colgroup>
+          <thead><tr><th>维度</th><th>Redis ae</th><th>Netty</th><th>差异本质</th></tr></thead>
+          <tbody>
+            <tr><td class="k">线程模型</td><td>单线程执行（8.x 加 IO 线程只做网络 IO）</td><td>Boss 组 + Worker 组（EventLoopGroup），多线程并行处理</td><td>执行是否分片</td></tr>
+            <tr><td class="k">事件循环</td><td>aeMain → aeProcessEvents</td><td>NioEventLoop.run → processSelectedKeys</td><td>结构同构</td></tr>
+            <tr><td class="k">多路复用</td><td>epoll 直连（C 语言，无拷贝开销）</td><td>Java NIO Selector / 可选 epoll（netty-transport-native-epoll）</td><td>内核态距离</td></tr>
+            <tr><td class="k">定时任务</td><td>时间事件链表 + serverCron</td><td>HashedWheelTimer（时间轮）</td><td>大任务集中 vs 通用散列</td></tr>
+            <tr><td class="k">并发安全</td><td>执行路径天然无锁（顺序执行）</td><td>每 EventLoop 绑定线程，跨线程提交需 task queue / 原子</td><td>Redis 靠模型免锁</td></tr>
+            <tr><td class="k">写优化</td><td>beforeSleep 批量写 clients_pending_write</td><td>writeAndFlush + 自动攒批（channel 写缓冲）</td><td>殊途同归</td></tr>
+            <tr><td class="k">适用</td><td>内存数据库：单命令微秒级，瓶颈在 IO 等待</td><td>通用网络中间件：可能处理秒级长任务，需多核</td><td>工作负载决定</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="points">
+        <li><b>为什么 Netty 必须多线程</b>：Netty 承载的业务可能包含阻塞/耗时操作（数据库查询、文件 IO），单线程会饿死所有连接；Redis 命令全是内存操作，单线程不会成为 CPU 瓶颈 —— 这是模型选择的前提差异。</li>
+        <li><b>结构同源</b>：两者都来自 Doug Lea 的 Reactor 论文 —— 一个线程循环：select 等待 → 分发事件 → 处理回调。读懂 ae 再看 NioEventLoop 会非常顺。</li>
+        <li><b>8.x 之后的收敛</b>：IO 线程 + 主线程执行的架构，在思路上接近 Netty 的"IO 线程处理网络、业务线程处理逻辑"，但 Redis 仍坚持"业务永远单线程"。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="index">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">11</span>
+      <span class="sec-title">核心源码索引</span>
+      <span class="sec-en">SOURCE INDEX</span>
+    </div>
+    <div class="idx">
+      <div class="idx-card"><span class="t">事件循环本体</span><span class="f">ae.h:79-93 aeEventLoop · ae.c:497 aeMain</span><span class="d">文件事件数组 + 时间事件链表 + 钩子，一个结构装下所有调度状态</span></div>
+      <div class="idx-card"><span class="t">一次事件迭代</span><span class="f">ae.c:365 aeProcessEvents</span><span class="d">beforeSleep → 算超时 → aeApiPoll → afterSleep → 分发文件事件 → 时间事件</span></div>
+      <div class="idx-card"><span class="t">文件事件注册</span><span class="f">ae.c:145 aeCreateFileEvent · ae.c:181 aeDeleteFileEvent</span><span class="d">fd 作数组下标 O(1)；mask 掩码控制读写与 BARRIER</span></div>
+      <div class="idx-card"><span class="t">多路复用抽象</span><span class="f">ae.c 顶部 #ifdef · ae_epoll.c / ae_kqueue.c / ae_select.c</span><span class="d">统一 7 个 API，编译期选平台，apidata 装私有态</span></div>
+      <div class="idx-card"><span class="t">epoll 适配</span><span class="f">ae_epoll.c:19 aeApiCreate · :54 aeApiAddEvent · :89 aeApiPoll</span><span class="d">水平触发；EPOLLIN/OUT/ERR/HUP 映射；就绪数组动态扩展</span></div>
+      <div class="idx-card"><span class="t">时间事件</span><span class="f">ae.c:218 aeCreateTimeEvent · :468 processTimeEvents</span><span class="d">链表 + 单调时钟；AE_NOMORE 删除；打标记防遍历中改链</span></div>
+      <div class="idx-card"><span class="t">serverCron</span><span class="f">server.c:1562 · 注册 :3201（1ms）· server.h:836 run_with_period</span><span class="d">过期清理/save/AOF/集群 cron 全在此，cronloops 节流</span></div>
+      <div class="idx-card"><span class="t">主线程钩子</span><span class="f">server.c:1947 beforeSleep · :2162 afterSleep · 注册 :3216-3217</span><span class="d">批量写回复、AOF 刷盘挂 poll 前；IO 线程协调</span></div>
+      <div class="idx-card"><span class="t">客户端生命周期</span><span class="f">socket.c:301 connSocketAcceptHandler · networking.c:122 createClient · :3894 readQueryFromClient · :3690 processInputBuffer</span><span class="d">accept → 读事件 → 解析执行 → 回复缓冲 → beforeSleep 批量写</span></div>
+      <div class="idx-card"><span class="t">8.x IO 线程</span><span class="f">iothread.c:991 initThreadedIO · :1006 每线程事件循环 · :503 sendPendingClientsToIOThreads</span><span class="d">多 Reactor：IO 线程读解析、命令回主线程执行；notifier 通信</span></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Redis 8.10.1 事件循环笔记 · 源码位于 Database/redis</span>
+    <span>函数行号以当前仓库为准</span>
+  </div>
+</footer>
+
+<button id="topBtn" aria-label="回到顶部">↑</button>
+
+<script>
+(function(){
+  "use strict";
+  var chips = Array.prototype.slice.call(document.querySelectorAll('#nav .chip'));
+  var sections = chips.map(function(c){
+    var id = c.getAttribute('href').slice(1);
+    return document.getElementById(id);
+  }).filter(Boolean);
+  var topBtn = document.getElementById('topBtn');
+  var ticking = false;
+
+  function onScroll(){
+    if(!ticking){
+      requestAnimationFrame(function(){
+        var pos = window.scrollY || document.documentElement.scrollTop;
+        var active = 0;
+        for(var i=0;i<sections.length;i++){
+          if(sections[i] && sections[i].offsetTop - 90 <= pos) active = i;
+        }
+        chips.forEach(function(c,i){ c.classList.toggle('on', i===active); });
+        topBtn.classList.toggle('show', pos > 600);
+        ticking = false;
+      });
+      ticking = true;
+    }
+  }
+  window.addEventListener('scroll', onScroll, {passive:true});
+  onScroll();
+
+  topBtn.addEventListener('click', function(){ window.scrollTo({top:0, behavior:'smooth'}); });
+})();
+</script>
+</body>
+</html>
+
+
